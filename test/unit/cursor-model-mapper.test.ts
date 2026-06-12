@@ -34,11 +34,11 @@ describe("Cursor model mapper", () => {
 		assert.equal(composer?.contextWindow, 200);
 		assert.equal(composer?.maxTokens, 20);
 		assert.deepEqual(composer?.thinkingLevelMap, {
-			minimal: "low",
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: "max",
+			minimal: "composer-2-low",
+			low: "composer-2-low",
+			medium: "composer-2-medium",
+			high: "composer-2-high",
+			xhigh: "composer-2-max",
 		});
 	});
 
@@ -68,5 +68,43 @@ describe("Cursor model mapper", () => {
 			resolveCursorModelVariant("composer-2", { xhigh: "max", high: "high" }, "xhigh"),
 			"composer-2-max",
 		);
+		assert.equal(
+			resolveCursorModelVariant("composer-2", { xhigh: "composer-2-max", high: "composer-2-high" }, "xhigh"),
+			"composer-2-max",
+		);
+	});
+
+	test("prefers advertised default or none live variants as primary ids", () => {
+		const catalog: CursorModelCatalog = {
+			source: "live",
+			fetchedAt: 1,
+			models: [
+				{ id: "alpha-high", displayName: "Alpha High" },
+				{ id: "alpha-none", displayName: "Alpha None" },
+				{ id: "beta-high", displayName: "Beta High" },
+				{ id: "beta-none", displayName: "Beta None" },
+				{ id: "beta-default", displayName: "Beta Default" },
+			],
+		};
+
+		const models = mapCursorCatalogToProviderModels(catalog);
+		assert.equal(models.find((model) => model.id.startsWith("alpha"))?.id, "alpha-none");
+		assert.equal(models.find((model) => model.id.startsWith("beta"))?.id, "beta-default");
+	});
+
+	test("uses advertised live fast/thinking ids instead of synthesizing absent base ids", () => {
+		const catalog: CursorModelCatalog = {
+			source: "live",
+			fetchedAt: 1,
+			models: [
+				{ id: "claude-4-sonnet-thinking-fast", displayName: "Claude Sonnet Thinking Fast", supportsThinking: true },
+				{ id: "claude-4-sonnet-high-thinking-fast", displayName: "Claude Sonnet High Thinking Fast", supportsThinking: true },
+			],
+		};
+
+		const [mapped] = mapCursorCatalogToProviderModels(catalog);
+		assert.equal(mapped?.id, "claude-4-sonnet-thinking-fast");
+		assert.equal(resolveCursorModelVariant(mapped!.id, mapped!.thinkingLevelMap, "high"), "claude-4-sonnet-high-thinking-fast");
+		assert.equal(resolveCursorModelVariant(mapped!.id, mapped!.thinkingLevelMap, "medium"), "claude-4-sonnet-thinking-fast");
 	});
 });

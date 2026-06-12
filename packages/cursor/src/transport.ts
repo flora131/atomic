@@ -54,8 +54,8 @@ export type CursorDoneReason = "stop" | "length" | "toolUse";
 export type CursorServerMessage =
 	| { readonly type: "textDelta"; readonly text: string }
 	| { readonly type: "thinkingDelta"; readonly text: string }
-	| { readonly type: "toolCall"; readonly id: string; readonly name: string; readonly argumentsJson: string }
-	| { readonly type: "usage"; readonly kind?: "checkpoint"; readonly inputTokens?: number; readonly outputTokens?: number; readonly cacheReadTokens?: number; readonly cacheWriteTokens?: number }
+	| { readonly type: "toolCall"; readonly id: string; readonly name: string; readonly argumentsJson: string; readonly execId?: string; readonly execNumericId?: number }
+	| { readonly type: "usage"; readonly kind?: "checkpoint"; readonly inputTokens?: number; readonly outputTokens?: number; readonly cacheReadTokens?: number; readonly cacheWriteTokens?: number; readonly usedTokens?: number; readonly maxTokens?: number }
 	| { readonly type: "usage"; readonly kind: "outputDelta"; readonly outputTokens: number }
 	| { readonly type: "done"; readonly reason: CursorDoneReason };
 
@@ -694,8 +694,8 @@ function parseCursorServerMessagesFromJson(value: JsonValue): readonly CursorSer
 		const type = readStringField(object, "type");
 		if (type === "textDelta") return [{ type, text: readStringField(object, "text") ?? "" }];
 		if (type === "thinkingDelta") return [{ type, text: readStringField(object, "text") ?? "" }];
-		if (type === "toolCall") return [{ type, id: readStringField(object, "id") ?? "cursor-tool", name: readStringField(object, "name") ?? "cursor_tool", argumentsJson: readStringField(object, "argumentsJson") ?? "{}" }];
-		if (type === "usage") return [{ type, kind: "checkpoint", inputTokens: readNumberField(object, "inputTokens"), outputTokens: readNumberField(object, "outputTokens"), cacheReadTokens: readNumberField(object, "cacheReadTokens"), cacheWriteTokens: readNumberField(object, "cacheWriteTokens") }];
+		if (type === "toolCall") return [{ type, id: readStringField(object, "id") ?? "cursor-tool", name: readStringField(object, "name") ?? "cursor_tool", argumentsJson: readStringField(object, "argumentsJson") ?? "{}", execId: readStringField(object, "execId"), execNumericId: readNumberField(object, "execNumericId") }];
+		if (type === "usage") return [{ type, kind: "checkpoint", inputTokens: readNumberField(object, "inputTokens"), outputTokens: readNumberField(object, "outputTokens"), cacheReadTokens: readNumberField(object, "cacheReadTokens"), cacheWriteTokens: readNumberField(object, "cacheWriteTokens"), usedTokens: readNumberField(object, "usedTokens"), maxTokens: readNumberField(object, "maxTokens") }];
 		if (type === "done") return [{ type, reason: parseDoneReason(readStringField(object, "reason")) }];
 		return [];
 	});

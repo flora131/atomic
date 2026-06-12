@@ -1,4 +1,4 @@
-import { createCursorExperimentalProtocolError, readNumberField } from "../config.js";
+import { createCursorExperimentalProtocolError, type JsonObject, type JsonValue } from "../config.js";
 import type { CursorUsableModel } from "../model-mapper.js";
 import type { CursorConnectFrame, CursorDoneReason, CursorProtocolCodec, CursorRunRequest, CursorServerMessage } from "../transport.js";
 
@@ -6,9 +6,10 @@ import type { CursorConnectFrame, CursorDoneReason, CursorProtocolCodec, CursorR
 // MIT-licensed ndraiman/pi-cursor-provider and ephraimduncan/opencode-cursor.
 // Keep all private Cursor wire-format handling isolated in this module.
 
-type WireField = { readonly fieldNumber: number; readonly wireType: number; readonly value: bigint | Uint8Array };
+type WireField = { readonly fieldNumber: number; readonly wireType: number; readonly value: bigint | Uint8Array | number };
 
 const WIRE_VARINT = 0;
+const WIRE_FIXED64 = 1;
 const WIRE_LENGTH_DELIMITED = 2;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -124,48 +125,56 @@ function decodeTokenDelta(data: Uint8Array): number {
 
 function decodeCheckpointUsage(data: Uint8Array): CursorServerMessage | undefined {
 	for (const field of readFields(data)) {
-		if (field.value instanceof Uint8Array) {
-			const nested = Object.fromEntries(readFields(field.value).flatMap((nestedField) => typeof nestedField.value === "bigint" ? [[nestedField.fieldNumber, Number(nestedField.value)]] : []));
-			const inputTokens = readNumberField(nested, "1");
-			const outputTokens = readNumberField(nested, "2");
-			const cacheReadTokens = readNumberField(nested, "3");
-			const cacheWriteTokens = readNumberField(nested, "4");
-			if (inputTokens !== undefined || outputTokens !== undefined || cacheReadTokens !== undefined || cacheWriteTokens !== undefined) {
-				return { type: "usage", kind: "checkpoint", inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens };
-			}
+		if (field.fieldNumber !== 5 || !(field.value instanceof Uint8Array)) continue;
+		let usedTokens: number | undefined;
+		let maxTokens: number | undefined;
+		for (const tokenField of readFields(field.value)) {
+			if (tokenField.fieldNumber === 1 && typeof tokenField.value === "bigint") usedTokens = Number(tokenField.value);
+			else if (tokenField.fieldNumber === 2 && typeof tokenField.value === "bigint") maxTokens = Number(tokenField.value);
 		}
+		if (usedTokens !== undefined || maxTokens !== undefined) return { type: "usage", kind: "checkpoint", usedTokens, maxTokens };
 	}
 	return undefined;
 }
 
 function decodeExecServerMessage(data: Uint8Array): readonly CursorServerMessage[] {
+	let execNumericId: number | undefined;
 	let execId: string | undefined;
-	const messages: CursorServerMessage[] = [];
+	const mcpPayloads: Uint8Array[] = [];
 	let unsupportedField: number | undefined;
 	for (const field of readFields(data)) {
-		if (field.fieldNumber === 15 && field.value instanceof Uint8Array) execId = decodeString(field.value);
-		else if (field.fieldNumber === 11 && field.value instanceof Uint8Array) messages.push(decodeMcpArgs(field.value, execId));
+		if (field.fieldNumber === 1 && typeof field.value === "bigint") execNumericId = Number(field.value);
+		else if (field.fieldNumber === 15 && field.value instanceof Uint8Array) execId = decodeString(field.value);
+		else if (field.fieldNumber === 11 && field.value instanceof Uint8Array) mcpPayloads.push(field.value);
 		else if (field.fieldNumber !== 1 && field.value instanceof Uint8Array) unsupportedField = field.fieldNumber;
 	}
+	const messages = mcpPayloads.map((payload) => decodeMcpArgs(payload, execId, execNumericId));
 	if (messages.length === 0 && unsupportedField !== undefined) throw new Error(`Unsupported Cursor exec server message field ${unsupportedField}.`);
 	return messages;
 }
 
-function decodeMcpArgs(data: Uint8Array, execId: string | undefined): CursorServerMessage {
+function decodeMcpArgs(data: Uint8Array, execId: string | undefined, execNumericId: number | undefined): CursorServerMessage {
 	let id = execId ?? "cursor-tool";
 	let name = "cursor_tool";
 	let toolName: string | undefined;
-	const args: Record<string, string> = {};
+	const args: Record<string, JsonValue> = {};
 	for (const field of readFields(data)) {
 		if (field.fieldNumber === 1 && field.value instanceof Uint8Array) name = decodeString(field.value) || name;
 		else if (field.fieldNumber === 3 && field.value instanceof Uint8Array) id = decodeString(field.value) || id;
 		else if (field.fieldNumber === 5 && field.value instanceof Uint8Array) toolName = decodeString(field.value);
 		else if (field.fieldNumber === 2 && field.value instanceof Uint8Array) {
 			const entry = decodeMapStringBytesEntry(field.value);
-			if (entry) args[entry.key] = decodeString(entry.value);
+			if (entry) args[entry.key] = decodeProtobufValue(entry.value);
 		}
 	}
-	return { type: "toolCall", id, name: toolName ?? name, argumentsJson: JSON.stringify(args) };
+	return {
+		type: "toolCall",
+		id,
+		name: toolName ?? name,
+		argumentsJson: JSON.stringify(args),
+		...(execId ? { execId } : {}),
+		...(execNumericId !== undefined ? { execNumericId } : {}),
+	};
 }
 
 function decodeMapStringBytesEntry(data: Uint8Array): { readonly key: string; readonly value: Uint8Array } | undefined {
@@ -175,7 +184,48 @@ function decodeMapStringBytesEntry(data: Uint8Array): { readonly key: string; re
 		if (field.fieldNumber === 1 && field.value instanceof Uint8Array) key = decodeString(field.value);
 		else if (field.fieldNumber === 2 && field.value instanceof Uint8Array) value = field.value;
 	}
-	return key && value ? { key, value } : undefined;
+	return key !== undefined && value !== undefined ? { key, value } : undefined;
+}
+
+function decodeProtobufValue(data: Uint8Array): JsonValue {
+	let output: JsonValue = null;
+	for (const field of readFields(data)) {
+		if (field.fieldNumber === 1) output = null;
+		else if (field.fieldNumber === 2 && typeof field.value === "number") output = field.value;
+		else if (field.fieldNumber === 3 && field.value instanceof Uint8Array) output = decodeString(field.value);
+		else if (field.fieldNumber === 4 && typeof field.value === "bigint") output = field.value !== 0n;
+		else if (field.fieldNumber === 5 && field.value instanceof Uint8Array) output = decodeStructValue(field.value);
+		else if (field.fieldNumber === 6 && field.value instanceof Uint8Array) output = decodeListValue(field.value);
+	}
+	return output;
+}
+
+function decodeStructValue(data: Uint8Array): JsonObject {
+	const output: JsonObject = {};
+	for (const field of readFields(data)) {
+		if (field.fieldNumber !== 1 || !(field.value instanceof Uint8Array)) continue;
+		const entry = decodeStructEntry(field.value);
+		if (entry) output[entry.key] = entry.value;
+	}
+	return output;
+}
+
+function decodeStructEntry(data: Uint8Array): { readonly key: string; readonly value: JsonValue } | undefined {
+	let key: string | undefined;
+	let value: JsonValue | undefined;
+	for (const field of readFields(data)) {
+		if (field.fieldNumber === 1 && field.value instanceof Uint8Array) key = decodeString(field.value);
+		else if (field.fieldNumber === 2 && field.value instanceof Uint8Array) value = decodeProtobufValue(field.value);
+	}
+	return key !== undefined && value !== undefined ? { key, value } : undefined;
+}
+
+function decodeListValue(data: Uint8Array): JsonValue[] {
+	const values: JsonValue[] = [];
+	for (const field of readFields(data)) {
+		if (field.fieldNumber === 1 && field.value instanceof Uint8Array) values.push(decodeProtobufValue(field.value));
+	}
+	return values;
 }
 
 function encodeUserMessageAction(text: string, requestId: string): Uint8Array {
@@ -281,6 +331,12 @@ function readFields(data: Uint8Array): readonly WireField[] {
 			const value = readVarint(data, offset);
 			offset = value.offset;
 			fields.push({ fieldNumber, wireType, value: value.value });
+		} else if (wireType === WIRE_FIXED64) {
+			const end = offset + 8;
+			if (end > data.length) throw new Error("truncated fixed64 field");
+			const view = new DataView(data.buffer, data.byteOffset + offset, 8);
+			fields.push({ fieldNumber, wireType, value: view.getFloat64(0, true) });
+			offset = end;
 		} else if (wireType === WIRE_LENGTH_DELIMITED) {
 			const length = readVarint(data, offset);
 			offset = length.offset;
@@ -325,6 +381,12 @@ function encodeVarintField(fieldNumber: number, value: bigint): Uint8Array {
 	return concatBytes(encodeVarint(BigInt((fieldNumber << 3) | WIRE_VARINT)), encodeVarint(value));
 }
 
+function encodeDoubleField(fieldNumber: number, value: number): Uint8Array {
+	const bytes = new Uint8Array(8);
+	new DataView(bytes.buffer).setFloat64(0, value, true);
+	return concatBytes(encodeVarint(BigInt((fieldNumber << 3) | WIRE_FIXED64)), bytes);
+}
+
 function encodeVarint(value: bigint): Uint8Array {
 	const bytes: number[] = [];
 	let current = value;
@@ -351,4 +413,4 @@ function decodeString(data: Uint8Array): string {
 	return textDecoder.decode(data);
 }
 
-export const __cursorProtoTest = { encodeStringField, encodeMessageField, concatBytes };
+export const __cursorProtoTest = { encodeStringField, encodeMessageField, encodeVarintField, encodeDoubleField, concatBytes };

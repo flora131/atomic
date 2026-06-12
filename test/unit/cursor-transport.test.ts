@@ -134,6 +134,34 @@ const contextWithUserMessage: Context = {
 	tools: [{ name: "Read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } }],
 };
 
+function valueString(value: string): Uint8Array {
+	return __cursorProtoTest.encodeStringField(3, value);
+}
+
+function valueNumber(value: number): Uint8Array {
+	return __cursorProtoTest.encodeDoubleField(2, value);
+}
+
+function valueBool(value: boolean): Uint8Array {
+	return __cursorProtoTest.encodeVarintField(4, value ? 1n : 0n);
+}
+
+function valueNull(): Uint8Array {
+	return __cursorProtoTest.encodeVarintField(1, 0n);
+}
+
+function valueStruct(entries: readonly [string, Uint8Array][]): Uint8Array {
+	return __cursorProtoTest.encodeMessageField(5, __cursorProtoTest.concatBytes(...entries.map(([key, value]) => __cursorProtoTest.encodeMessageField(1, __cursorProtoTest.concatBytes(__cursorProtoTest.encodeStringField(1, key), __cursorProtoTest.encodeMessageField(2, value))))));
+}
+
+function valueList(values: readonly Uint8Array[]): Uint8Array {
+	return __cursorProtoTest.encodeMessageField(6, __cursorProtoTest.concatBytes(...values.map((value) => __cursorProtoTest.encodeMessageField(1, value))));
+}
+
+function mcpArgEntry(key: string, value: Uint8Array): Uint8Array {
+	return __cursorProtoTest.concatBytes(__cursorProtoTest.encodeStringField(1, key), __cursorProtoTest.encodeMessageField(2, value));
+}
+
 describe("Cursor HTTP2 transport boundary", () => {
 	test("encodes and decodes Connect frames", () => {
 		const encoded = encodeCursorConnectFrame(new Uint8Array([1, 2, 3]), 2);
@@ -167,21 +195,43 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: interactionUpdate, endStream: false }), [{ type: "textDelta", text: "hello" }]);
 	});
 
+	test("protobuf codec decodes checkpoint token details without treating max tokens as output", () => {
+		const codec = new CursorProtobufProtocolCodec();
+		const tokenDetails = __cursorProtoTest.concatBytes(__cursorProtoTest.encodeVarintField(1, 120n), __cursorProtoTest.encodeVarintField(2, 2000n));
+		const checkpoint = __cursorProtoTest.concatBytes(
+			__cursorProtoTest.encodeMessageField(1, __cursorProtoTest.encodeStringField(1, "prompt json should be ignored")),
+			__cursorProtoTest.encodeMessageField(5, tokenDetails),
+		);
+		const agentMessage = __cursorProtoTest.encodeMessageField(3, checkpoint);
+		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: agentMessage, endStream: false }), [{ type: "usage", kind: "checkpoint", usedTokens: 120, maxTokens: 2000 }]);
+	});
+
 	test("protobuf codec decodes exec server MCP args as tool calls", () => {
 		const codec = new CursorProtobufProtocolCodec();
-		const argEntry = __cursorProtoTest.concatBytes(
-			__cursorProtoTest.encodeStringField(1, "query"),
-			__cursorProtoTest.encodeMessageField(2, new TextEncoder().encode("hello")),
-		);
 		const mcpArgs = __cursorProtoTest.concatBytes(
 			__cursorProtoTest.encodeStringField(1, "search"),
-			__cursorProtoTest.encodeMessageField(2, argEntry),
-			__cursorProtoTest.encodeStringField(3, "tool-1"),
+			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("query", valueString("hello"))),
+			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("count", valueNumber(42.5))),
+			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("enabled", valueBool(true))),
+			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("nothing", valueNull())),
+			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("nested", valueStruct([["key", valueString("value")]]))),
+			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("items", valueList([valueString("a"), valueNumber(2)]))),
 			__cursorProtoTest.encodeStringField(5, "search"),
 		);
-		const execServer = __cursorProtoTest.encodeMessageField(11, mcpArgs);
+		const execServer = __cursorProtoTest.concatBytes(
+			__cursorProtoTest.encodeMessageField(11, mcpArgs),
+			__cursorProtoTest.encodeVarintField(1, 99n),
+			__cursorProtoTest.encodeStringField(15, "exec-99"),
+		);
 		const agentMessage = __cursorProtoTest.encodeMessageField(2, execServer);
-		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: agentMessage, endStream: false }), [{ type: "toolCall", id: "tool-1", name: "search", argumentsJson: JSON.stringify({ query: "hello" }) }]);
+		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: agentMessage, endStream: false }), [{
+			type: "toolCall",
+			id: "exec-99",
+			name: "search",
+			execId: "exec-99",
+			execNumericId: 99,
+			argumentsJson: JSON.stringify({ query: "hello", count: 42.5, enabled: true, nothing: null, nested: { key: "value" }, items: ["a", 2] }),
+		}]);
 	});
 
 	test("protobuf codec rejects unsupported exec server messages", () => {

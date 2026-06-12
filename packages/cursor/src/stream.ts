@@ -136,15 +136,19 @@ export class CursorStreamAdapter {
 			}
 		} catch (error) {
 			const aborted = error instanceof CursorStreamAbortError || options?.signal?.aborted;
-			if (aborted && runStream && conversationId) {
-				await this.#runtime.conversationState.cancelTurn(conversationId);
-			}
 			output.stopReason = aborted ? "aborted" : "error";
 			output.errorMessage = aborted
 				? "Cursor stream aborted."
 				: sanitizeDiagnosticText(error instanceof Error ? error.message : "Cursor stream failed.", [options?.apiKey ?? ""]);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			terminalEventSent = true;
+			if (aborted && runStream && conversationId) {
+				try {
+					await this.#runtime.conversationState.cancelTurn(conversationId);
+				} catch {
+					// Abort terminal events must not be suppressed by best-effort cleanup failures.
+				}
+			}
 		} finally {
 			try {
 				if (runStream && !options?.signal?.aborted) {
@@ -258,6 +262,7 @@ function updateUsage(output: AssistantMessage, model: Model<Api>, message: Extra
 		output.usage.output += message.outputTokens;
 	} else {
 		if (message.inputTokens !== undefined) output.usage.input = message.inputTokens;
+		else if (message.usedTokens !== undefined) output.usage.input = Math.max(0, message.usedTokens - output.usage.output - output.usage.cacheRead - output.usage.cacheWrite);
 		if (message.outputTokens !== undefined) output.usage.output = message.outputTokens;
 		if (message.cacheReadTokens !== undefined) output.usage.cacheRead = message.cacheReadTokens;
 		if (message.cacheWriteTokens !== undefined) output.usage.cacheWrite = message.cacheWriteTokens;

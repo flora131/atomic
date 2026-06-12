@@ -49,6 +49,7 @@ interface CursorVariant {
 
 interface CursorVariantGroup {
 	readonly baseId: string;
+	readonly primaryId: string;
 	readonly displayName: string;
 	readonly variants: readonly CursorVariant[];
 }
@@ -84,16 +85,16 @@ export function createEstimatedCursorCatalog(now = Date.now()): CursorModelCatal
 
 export function mapCursorCatalogToProviderModels(catalog: CursorModelCatalog): CursorProviderModelDefinition[] {
 	return groupCursorModels(catalog.models).map((group) => {
-		const efforts = collectEfforts(group.variants);
+		const effortVariants = collectEffortVariants(group.variants, group.primaryId);
 		const supportsReasoning = group.variants.some((variant) => Boolean(variant.supportsReasoning || variant.supportsThinking || variant.thinking || variant.effort));
 		const name = catalog.source === "estimated" ? `${group.displayName} (estimated)` : group.displayName;
 		return {
-			id: group.baseId,
+			id: group.primaryId,
 			name,
 			api: CURSOR_API,
 			baseUrl: CURSOR_API_BASE_URL,
 			reasoning: supportsReasoning,
-			thinkingLevelMap: supportsReasoning ? buildThinkingLevelMap(efforts) : undefined,
+			thinkingLevelMap: supportsReasoning ? buildThinkingLevelMap(effortVariants, group.primaryId) : undefined,
 			input: ["text"],
 			cost: estimateCost(group.baseId),
 			contextWindow: chooseLargestNumber(group.variants.map((variant) => variant.contextWindow)) ?? ESTIMATED_CONTEXT_WINDOW,
@@ -108,9 +109,10 @@ export function resolveCursorModelVariant(
 	thinkingLevel: ThinkingLevel | undefined,
 ): string {
 	if (!thinkingLevel || !thinkingLevelMap) return baseModelId;
-	const mappedEffort = thinkingLevelMap[thinkingLevel];
-	if (!mappedEffort || mappedEffort === "default") return baseModelId;
-	return insertEffortBeforeCursorSuffix(baseModelId, mappedEffort as CursorEffort);
+	const mapped = thinkingLevelMap[thinkingLevel];
+	if (!mapped || mapped === "default") return baseModelId;
+	if (isCursorEffort(mapped)) return replaceEffortBeforeCursorSuffix(baseModelId, mapped);
+	return mapped;
 }
 
 export function insertEffortBeforeCursorSuffix(modelId: string, effort: CursorEffort): string {
@@ -127,6 +129,12 @@ export function insertEffortBeforeCursorSuffix(modelId: string, effort: CursorEf
 		base = base.slice(0, -"-thinking".length);
 	}
 	return `${base}-${effort}${thinking ? "-thinking" : ""}${fast ? "-fast" : ""}`;
+}
+
+function replaceEffortBeforeCursorSuffix(modelId: string, effort: CursorEffort): string {
+	if (effort === "default") return modelId;
+	const variant = parseCursorVariant({ id: modelId });
+	return `${variant.baseId}-${effort}${variant.thinking ? "-thinking" : ""}${variant.fast ? "-fast" : ""}`;
 }
 
 export function parseCursorVariant(model: CursorUsableModel): CursorVariant {
@@ -168,39 +176,47 @@ function groupCursorModels(models: readonly CursorUsableModel[]): CursorVariantG
 		groups.set(variant.baseId, existing);
 	}
 	return [...groups.entries()]
-		.map(([baseId, variants]) => ({
-			baseId,
-			displayName: chooseDisplayName(variants, baseId),
-			variants,
-		}))
+		.map(([baseId, variants]) => {
+			const primaryId = choosePrimaryId(variants, baseId);
+			return {
+				baseId,
+				primaryId,
+				displayName: chooseDisplayName(variants, baseId, primaryId),
+				variants,
+			};
+		})
 		.sort((left, right) => left.baseId.localeCompare(right.baseId));
 }
 
-function collectEfforts(variants: readonly CursorVariant[]): readonly CursorEffort[] {
-	const efforts = new Set<CursorEffort>();
+function collectEffortVariants(variants: readonly CursorVariant[], primaryId: string): ReadonlyMap<CursorEffort, string> {
+	const byEffort = new Map<CursorEffort, string>();
 	for (const variant of variants) {
-		if (variant.effort) efforts.add(variant.effort);
+		const effort = variant.effort ?? (variant.id === primaryId || variant.supportsReasoning || variant.supportsThinking || variant.thinking ? "default" : undefined);
+		if (effort && !byEffort.has(effort)) byEffort.set(effort, variant.id);
 	}
-	if (efforts.size === 0 && variants.some((variant) => variant.thinking || variant.supportsReasoning || variant.supportsThinking)) {
-		efforts.add("default");
-	}
-	return [...efforts];
+	return byEffort;
 }
 
-function buildThinkingLevelMap(efforts: readonly CursorEffort[]): ThinkingLevelMap {
-	const fallbackEfforts: readonly CursorEffort[] = ["default"];
-	const available: ReadonlySet<CursorEffort> = new Set<CursorEffort>(efforts.length > 0 ? efforts : fallbackEfforts);
+function buildThinkingLevelMap(effortVariants: ReadonlyMap<CursorEffort, string>, primaryId: string): ThinkingLevelMap {
 	return {
-		minimal: chooseEffort(available, THINKING_LEVEL_EFFORT_PREFERENCES.minimal),
-		low: chooseEffort(available, THINKING_LEVEL_EFFORT_PREFERENCES.low),
-		medium: chooseEffort(available, THINKING_LEVEL_EFFORT_PREFERENCES.medium),
-		high: chooseEffort(available, THINKING_LEVEL_EFFORT_PREFERENCES.high),
-		xhigh: chooseEffort(available, THINKING_LEVEL_EFFORT_PREFERENCES.xhigh),
+		minimal: chooseEffortVariant(effortVariants, THINKING_LEVEL_EFFORT_PREFERENCES.minimal, primaryId),
+		low: chooseEffortVariant(effortVariants, THINKING_LEVEL_EFFORT_PREFERENCES.low, primaryId),
+		medium: chooseEffortVariant(effortVariants, THINKING_LEVEL_EFFORT_PREFERENCES.medium, primaryId),
+		high: chooseEffortVariant(effortVariants, THINKING_LEVEL_EFFORT_PREFERENCES.high, primaryId),
+		xhigh: chooseEffortVariant(effortVariants, THINKING_LEVEL_EFFORT_PREFERENCES.xhigh, primaryId),
 	};
 }
 
-function chooseEffort(available: ReadonlySet<CursorEffort>, preferences: readonly CursorEffort[]): string | null {
-	return preferences.find((effort) => available.has(effort)) ?? null;
+function chooseEffortVariant(effortVariants: ReadonlyMap<CursorEffort, string>, preferences: readonly CursorEffort[], _primaryId: string): string | null {
+	for (const effort of preferences) {
+		const variantId = effortVariants.get(effort);
+		if (variantId) return variantId;
+	}
+	return null;
+}
+
+function isCursorEffort(value: string): value is CursorEffort {
+	return (EFFORTS as readonly string[]).includes(value);
 }
 
 function chooseLargestNumber(values: readonly (number | undefined)[]): number | undefined {
@@ -208,8 +224,16 @@ function chooseLargestNumber(values: readonly (number | undefined)[]): number | 
 	return finiteValues.length > 0 ? Math.max(...finiteValues) : undefined;
 }
 
-function chooseDisplayName(variants: readonly CursorVariant[], baseId: string): string {
-	return variants.find((variant) => variant.id === baseId)?.displayName ?? variants[0]?.displayName ?? titleCaseModelId(baseId);
+function choosePrimaryId(variants: readonly CursorVariant[], baseId: string): string {
+	return variants.find((variant) => variant.id === baseId)?.id
+		?? variants.find((variant) => variant.effort === "default")?.id
+		?? variants.find((variant) => variant.effort === "none")?.id
+		?? variants[0]?.id
+		?? baseId;
+}
+
+function chooseDisplayName(variants: readonly CursorVariant[], baseId: string, primaryId: string): string {
+	return variants.find((variant) => variant.id === primaryId)?.displayName ?? variants.find((variant) => variant.id === baseId)?.displayName ?? variants[0]?.displayName ?? titleCaseModelId(baseId);
 }
 
 function titleCaseModelId(id: string): string {

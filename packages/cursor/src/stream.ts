@@ -74,6 +74,7 @@ export class CursorStreamAdapter {
 		let textIndex: number | undefined;
 		let thinkingIndex: number | undefined;
 		let terminalEventSent = false;
+		let sawToolCall = false;
 
 		try {
 			if (!options?.apiKey) {
@@ -114,6 +115,7 @@ export class CursorStreamAdapter {
 				} else if (message.type === "thinkingDelta") {
 					thinkingIndex = appendThinkingDelta(stream, output, thinkingIndex, message.text);
 				} else if (message.type === "toolCall") {
+					sawToolCall = true;
 					appendToolCall(stream, output, message.id, message.name, message.argumentsJson);
 				} else if (message.type === "usage") {
 					updateUsage(output, model, message);
@@ -128,8 +130,8 @@ export class CursorStreamAdapter {
 
 			if (!terminalEventSent) {
 				closeOpenContent(stream, output, textIndex, thinkingIndex);
-				output.stopReason = "stop";
-				stream.push({ type: "done", reason: "stop", message: output });
+				output.stopReason = sawToolCall ? "toolUse" : "stop";
+				stream.push({ type: "done", reason: output.stopReason, message: output });
 				terminalEventSent = true;
 			}
 		} catch (error) {

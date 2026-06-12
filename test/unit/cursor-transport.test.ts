@@ -59,8 +59,9 @@ class FakeHttp2Client implements CursorHttp2Client {
 		return { statusCode: this.unaryStatus, body: this.unaryBody, headers: {} };
 	}
 
-	async openStream(request: { readonly path: string; readonly headers: Record<string, string> }): Promise<CursorHttp2StreamHandle> {
+	async openStream(request: { readonly path: string; readonly headers: Record<string, string>; readonly initialBody?: Uint8Array }): Promise<CursorHttp2StreamHandle> {
 		this.streamRequests.push({ path: request.path, headers: request.headers });
+		if (request.initialBody) await this.streamHandle.write(request.initialBody);
 		return this.streamHandle;
 	}
 
@@ -122,7 +123,16 @@ const model: Model<Api> = {
 };
 
 const context: Context = { messages: [], systemPrompt: "" };
-const contextWithUserMessage: Context = { messages: [{ role: "user", content: "hello cursor", timestamp: 1 }], systemPrompt: "system prompt" };
+const contextWithUserMessage: Context = {
+	systemPrompt: "system prompt",
+	messages: [
+		{ role: "user", content: "first question", timestamp: 1 },
+		{ role: "assistant", content: [{ type: "text", text: "first answer" }, { type: "toolCall", id: "tool-1", name: "Read", arguments: { path: "README.md" } }], api: "cursor-agent", provider: "cursor", model: "composer-2", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 },
+		{ role: "toolResult", toolCallId: "tool-1", toolName: "Read", content: [{ type: "text", text: "tool result text" }], isError: false, timestamp: 3 },
+		{ role: "user", content: "hello cursor", timestamp: 4 },
+	],
+	tools: [{ name: "Read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } }],
+};
 
 describe("Cursor HTTP2 transport boundary", () => {
 	test("encodes and decodes Connect frames", () => {
@@ -148,10 +158,36 @@ describe("Cursor HTTP2 transport boundary", () => {
 	test("protobuf codec decodes Cursor model discovery and text frames", () => {
 		const codec = new CursorProtobufProtocolCodec();
 		const encodedRun = codec.encodeRunRequest({ accessToken: "secret", requestId: "run-proto", model, resolvedModelId: "composer-2", context: contextWithUserMessage });
-		assert.ok(new TextDecoder().decode(encodedRun).includes("hello cursor"));
+		const decodedRunText = new TextDecoder().decode(encodedRun);
+		for (const expected of ["system prompt", "first question", "first answer", "tool-1", "README.md", "tool result text", "hello cursor", "Read a file"]) {
+			assert.ok(decodedRunText.includes(expected), `encoded run omitted ${expected}`);
+		}
 		const textDelta = __cursorProtoTest.encodeMessageField(1, __cursorProtoTest.encodeStringField(1, "hello"));
 		const interactionUpdate = __cursorProtoTest.encodeMessageField(1, textDelta);
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: interactionUpdate, endStream: false }), [{ type: "textDelta", text: "hello" }]);
+	});
+
+	test("protobuf codec decodes exec server MCP args as tool calls", () => {
+		const codec = new CursorProtobufProtocolCodec();
+		const argEntry = __cursorProtoTest.concatBytes(
+			__cursorProtoTest.encodeStringField(1, "query"),
+			__cursorProtoTest.encodeMessageField(2, new TextEncoder().encode("hello")),
+		);
+		const mcpArgs = __cursorProtoTest.concatBytes(
+			__cursorProtoTest.encodeStringField(1, "search"),
+			__cursorProtoTest.encodeMessageField(2, argEntry),
+			__cursorProtoTest.encodeStringField(3, "tool-1"),
+			__cursorProtoTest.encodeStringField(5, "search"),
+		);
+		const execServer = __cursorProtoTest.encodeMessageField(11, mcpArgs);
+		const agentMessage = __cursorProtoTest.encodeMessageField(2, execServer);
+		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: agentMessage, endStream: false }), [{ type: "toolCall", id: "tool-1", name: "search", argumentsJson: JSON.stringify({ query: "hello" }) }]);
+	});
+
+	test("protobuf codec rejects unsupported exec server messages", () => {
+		const codec = new CursorProtobufProtocolCodec();
+		const unsupportedExec = __cursorProtoTest.encodeMessageField(2, __cursorProtoTest.encodeStringField(2, "native shell"));
+		assert.throws(() => codec.decodeRunFrame({ flags: 0, data: unsupportedExec, endStream: false }), /Unsupported Cursor exec server message/u);
 	});
 
 	test("production transport defaults to the isolated protobuf codec", async () => {

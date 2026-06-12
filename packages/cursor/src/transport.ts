@@ -104,6 +104,7 @@ export interface CursorHttp2Client {
 		readonly path: string;
 		readonly headers: Record<string, string>;
 		readonly signal?: AbortSignal;
+		readonly initialBody?: Uint8Array;
 	}): Promise<CursorHttp2StreamHandle>;
 	dispose(): Promise<void>;
 }
@@ -214,8 +215,8 @@ export class Http2CursorAgentTransport implements CursorAgentTransport {
 			"connect-protocol-version": "1",
 		};
 		try {
-			const handle = await this.#client.openStream({ baseUrl: this.#baseUrl, path: CURSOR_RUN_PATH, headers, signal: request.signal });
-			await handle.write(encodeCursorConnectFrame(this.#codec.encodeRunRequest(request)));
+			const initialBody = encodeCursorConnectFrame(this.#codec.encodeRunRequest(request));
+			const handle = await this.#client.openStream({ baseUrl: this.#baseUrl, path: CURSOR_RUN_PATH, headers, signal: request.signal, initialBody });
 			this.#openStreams += 1;
 			return new Http2CursorRunStream(
 				request.requestId,
@@ -350,48 +351,21 @@ class NodeHttp2CursorClient implements CursorHttp2Client {
 		});
 	}
 
-	async openStream(request: { readonly baseUrl: string; readonly path: string; readonly headers: Record<string, string>; readonly signal?: AbortSignal }): Promise<CursorHttp2StreamHandle> {
+	async openStream(request: { readonly baseUrl: string; readonly path: string; readonly headers: Record<string, string>; readonly signal?: AbortSignal; readonly initialBody?: Uint8Array }): Promise<CursorHttp2StreamHandle> {
 		const session = this.openSession(request.baseUrl);
-		return new Promise<CursorHttp2StreamHandle>((resolve, reject) => {
-			let settled = false;
-			const stream = session.request({
-				[constants.HTTP2_HEADER_METHOD]: constants.HTTP2_METHOD_POST,
-				[constants.HTTP2_HEADER_PATH]: request.path,
-				...request.headers,
-			});
-			const cleanupBeforeResolve = (): void => {
-				request.signal?.removeEventListener("abort", onAbort);
-				session.removeListener("error", onSessionError);
-			};
-			const rejectOnce = (error: Error): void => {
-				if (settled) return;
-				settled = true;
-				cleanupBeforeResolve();
-				stream.destroy(error);
-				this.closeSession(session);
-				reject(error);
-			};
-			const onAbort = (): void => rejectOnce(new CursorTransportError("Aborted", "Cursor stream request aborted."));
-			const onSessionError = (error: Error): void => rejectOnce(new CursorTransportError("NetworkError", error.message));
-			request.signal?.addEventListener("abort", onAbort, { once: true });
-			session.on("error", onSessionError);
-			stream.once("response", (headers: IncomingHttpHeaders) => {
-				const normalized = normalizeIncomingHeaders(headers);
-				const statusCode = Number(normalized[":status"]);
-				try {
-					assertSuccessfulStatus(statusCode, new Uint8Array(), []);
-				} catch (error) {
-					rejectOnce(toError(error));
-					return;
-				}
-				if (settled) return;
-				settled = true;
-				cleanupBeforeResolve();
-				resolve(new NodeHttp2CursorStreamHandle(stream, () => this.closeSession(session), request.signal));
-			});
-			stream.once("error", (error: Error) => rejectOnce(toTransportError(error)));
-			stream.once("aborted", () => rejectOnce(new CursorTransportError("NetworkError", "Cursor stream was aborted by the remote endpoint before headers.")));
+		const stream = session.request({
+			[constants.HTTP2_HEADER_METHOD]: constants.HTTP2_METHOD_POST,
+			[constants.HTTP2_HEADER_PATH]: request.path,
+			...request.headers,
 		});
+		const handle = new NodeHttp2CursorStreamHandle(stream, session, () => this.closeSession(session), request.signal);
+		try {
+			if (request.initialBody) await handle.write(request.initialBody);
+			return handle;
+		} catch (error) {
+			await handle.cancel();
+			throw toTransportError(error);
+		}
 	}
 
 	async dispose(): Promise<void> {
@@ -416,87 +390,118 @@ class NodeHttp2CursorClient implements CursorHttp2Client {
 class NodeHttp2CursorStreamHandle implements CursorHttp2StreamHandle {
 	readonly frames: AsyncIterable<Uint8Array>;
 	#closed = false;
+	#done = false;
+	#failure: Error | undefined;
+	#notify: (() => void) | undefined;
+	readonly #queue: Uint8Array[] = [];
 
-	constructor(readonly stream: ClientHttp2Stream, readonly onClose: () => void, readonly signal?: AbortSignal) {
+	constructor(readonly stream: ClientHttp2Stream, readonly session: ClientHttp2Session, readonly onClose: () => void, readonly signal?: AbortSignal) {
 		this.frames = this.createFrames();
+		this.stream.on("response", this.onResponse);
+		this.stream.on("data", this.onData);
+		this.stream.on("end", this.onEnd);
+		this.stream.on("close", this.onCloseEvent);
+		this.stream.on("aborted", this.onAborted);
+		this.stream.on("error", this.onError);
+		this.session.on("error", this.onSessionError);
 		this.signal?.addEventListener("abort", this.abort, { once: true });
 	}
 
 	async write(data: Uint8Array): Promise<void> {
 		if (this.#closed) return;
-		this.stream.write(Buffer.from(data));
+		await new Promise<void>((resolve, reject) => {
+			this.stream.write(Buffer.from(data), (error?: Error | null) => {
+				if (error) reject(error);
+				else resolve();
+			});
+		});
 	}
 
 	async close(): Promise<void> {
 		if (this.#closed) return;
 		this.#closed = true;
-		this.signal?.removeEventListener("abort", this.abort);
+		this.cleanup();
 		this.stream.end();
+		this.finish();
 		this.onClose();
 	}
 
 	async cancel(): Promise<void> {
 		if (this.#closed) return;
 		this.#closed = true;
-		this.signal?.removeEventListener("abort", this.abort);
+		this.cleanup();
 		this.stream.close();
+		this.finish();
 		this.onClose();
 	}
 
 	private readonly abort = (): void => {
+		this.fail(new CursorTransportError("Aborted", "Cursor stream request aborted."));
 		void this.cancel();
 	};
 
-	private async *createFrames(): AsyncIterable<Uint8Array> {
-		const queue: Uint8Array[] = [];
-		let done = false;
-		let failure: Error | undefined;
-		let notify: (() => void) | undefined;
-		const wake = (): void => {
-			notify?.();
-			notify = undefined;
-		};
-		const finish = (): void => {
-			done = true;
-			wake();
-		};
-		const fail = (error: Error): void => {
-			failure = error;
-			finish();
-		};
-		const onData = (chunk: Buffer): void => {
-			queue.push(chunk);
-			wake();
-		};
-		const onEnd = (): void => finish();
-		const onClose = (): void => finish();
-		const onAborted = (): void => fail(new CursorTransportError("NetworkError", "Cursor stream was aborted by the remote endpoint."));
-		const onError = (error: Error): void => fail(toTransportError(error));
-		this.stream.on("data", onData);
-		this.stream.on("end", onEnd);
-		this.stream.on("close", onClose);
-		this.stream.on("aborted", onAborted);
-		this.stream.on("error", onError);
+	private readonly onResponse = (headers: IncomingHttpHeaders): void => {
+		const normalized = normalizeIncomingHeaders(headers);
 		try {
-			while (!done || queue.length > 0) {
-				const next = queue.shift();
+			assertSuccessfulStatus(Number(normalized[":status"]), new Uint8Array(), []);
+		} catch (error) {
+			this.fail(toError(error));
+		}
+	};
+
+	private readonly onData = (chunk: Buffer): void => {
+		this.#queue.push(chunk);
+		this.wake();
+	};
+	private readonly onEnd = (): void => this.finish();
+	private readonly onCloseEvent = (): void => this.finish();
+	private readonly onAborted = (): void => this.fail(new CursorTransportError("NetworkError", "Cursor stream was aborted by the remote endpoint."));
+	private readonly onError = (error: Error): void => this.fail(toTransportError(error));
+	private readonly onSessionError = (error: Error): void => this.fail(new CursorTransportError("NetworkError", error.message));
+
+	private wake(): void {
+		this.#notify?.();
+		this.#notify = undefined;
+	}
+
+	private finish(): void {
+		this.#done = true;
+		this.wake();
+	}
+
+	private fail(error: Error): void {
+		this.#failure = error;
+		this.finish();
+	}
+
+	private cleanup(): void {
+		this.signal?.removeEventListener("abort", this.abort);
+		this.stream.removeListener("response", this.onResponse);
+		this.stream.removeListener("data", this.onData);
+		this.stream.removeListener("end", this.onEnd);
+		this.stream.removeListener("close", this.onCloseEvent);
+		this.stream.removeListener("aborted", this.onAborted);
+		this.stream.removeListener("error", this.onError);
+		this.session.removeListener("error", this.onSessionError);
+	}
+
+	private async *createFrames(): AsyncIterable<Uint8Array> {
+		try {
+			while (!this.#done || this.#queue.length > 0) {
+				const next = this.#queue.shift();
 				if (next) {
 					yield next;
 					continue;
 				}
-				if (failure) throw failure;
-				if (done) break;
+				if (this.#failure) throw this.#failure;
+				if (this.#done) break;
 				await new Promise<void>((resolve) => {
-					notify = resolve;
+					this.#notify = resolve;
 				});
 			}
-			if (failure) throw failure;
+			if (this.#failure) throw this.#failure;
 		} finally {
-			this.stream.removeListener("data", onData);
-			this.stream.removeListener("end", onEnd);
-			this.stream.removeListener("close", onClose);
-			this.stream.removeListener("aborted", onAborted);
-			this.stream.removeListener("error", onError);
+			this.cleanup();
 		}
 	}
 }

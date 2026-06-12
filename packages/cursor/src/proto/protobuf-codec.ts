@@ -1,4 +1,4 @@
-import { createCursorExperimentalProtocolError, readNumberField, readStringField } from "../config.js";
+import { createCursorExperimentalProtocolError, readNumberField } from "../config.js";
 import type { CursorUsableModel } from "../model-mapper.js";
 import type { CursorConnectFrame, CursorDoneReason, CursorProtocolCodec, CursorRunRequest, CursorServerMessage } from "../transport.js";
 
@@ -34,9 +34,11 @@ export class CursorProtobufProtocolCodec implements CursorProtocolCodec {
 		const modelDetails = encodeMessageField(3, encodeModelDetails(request.resolvedModelId, request.model.name ?? request.resolvedModelId));
 		const conversationId = encodeStringField(5, request.requestId);
 		const customSystemPrompt = request.context.systemPrompt ? encodeStringField(8, request.context.systemPrompt) : new Uint8Array();
-		const userText = extractLastUserText(request);
+		const conversationState = encodeConversationState(request);
+		const tools = encodeMcpTools(request);
+		const userText = extractCurrentActionText(request);
 		const action = userText ? encodeMessageField(2, encodeUserMessageAction(userText, request.requestId)) : new Uint8Array();
-		const runRequest = concatBytes(action, modelDetails, conversationId, customSystemPrompt);
+		const runRequest = concatBytes(conversationState, action, modelDetails, tools, conversationId, customSystemPrompt);
 		return encodeMessageField(1, runRequest);
 	}
 
@@ -84,6 +86,9 @@ function decodeAgentServerMessage(data: Uint8Array): readonly CursorServerMessag
 		if (field.fieldNumber === 1 && field.value instanceof Uint8Array) {
 			messages.push(...decodeInteractionUpdate(field.value));
 		}
+		if (field.fieldNumber === 2 && field.value instanceof Uint8Array) {
+			messages.push(...decodeExecServerMessage(field.value));
+		}
 		if (field.fieldNumber === 3 && field.value instanceof Uint8Array) {
 			const usage = decodeCheckpointUsage(field.value);
 			if (usage) messages.push(usage);
@@ -99,10 +104,6 @@ function decodeInteractionUpdate(data: Uint8Array): readonly CursorServerMessage
 		else if (field.fieldNumber === 4 && field.value instanceof Uint8Array) messages.push({ type: "thinkingDelta", text: decodeTextFieldMessage(field.value) });
 		else if (field.fieldNumber === 8 && field.value instanceof Uint8Array) messages.push({ type: "usage", inputTokens: 0, outputTokens: decodeTokenDelta(field.value) });
 		else if (field.fieldNumber === 14 && field.value instanceof Uint8Array) messages.push({ type: "done", reason: "stop" satisfies CursorDoneReason });
-		else if ((field.fieldNumber === 2 || field.fieldNumber === 7 || field.fieldNumber === 15) && field.value instanceof Uint8Array) {
-			const tool = decodeToolLikeUpdate(field.value);
-			if (tool) messages.push(tool);
-		}
 	}
 	return messages;
 }
@@ -133,35 +134,130 @@ function decodeCheckpointUsage(data: Uint8Array): CursorServerMessage | undefine
 	return undefined;
 }
 
-function decodeToolLikeUpdate(data: Uint8Array): CursorServerMessage | undefined {
-	let id = "cursor-tool";
-	let name = "cursor_tool";
-	let args = "{}";
+function decodeExecServerMessage(data: Uint8Array): readonly CursorServerMessage[] {
+	let execId: string | undefined;
+	const messages: CursorServerMessage[] = [];
+	let unsupportedField: number | undefined;
 	for (const field of readFields(data)) {
-		if (field.fieldNumber === 1 && field.value instanceof Uint8Array) id = decodeString(field.value) || id;
-		if (field.value instanceof Uint8Array) {
-			const maybeText = decodeString(field.value);
-			if (field.fieldNumber === 2 && maybeText) name = readStringField({ value: maybeText }, "value") ?? maybeText;
-			if ((field.fieldNumber === 3 || field.fieldNumber === 4) && maybeText) args = maybeText;
+		if (field.fieldNumber === 15 && field.value instanceof Uint8Array) execId = decodeString(field.value);
+		else if (field.fieldNumber === 11 && field.value instanceof Uint8Array) messages.push(decodeMcpArgs(field.value, execId));
+		else if (field.fieldNumber !== 1 && field.value instanceof Uint8Array) unsupportedField = field.fieldNumber;
+	}
+	if (messages.length === 0 && unsupportedField !== undefined) throw new Error(`Unsupported Cursor exec server message field ${unsupportedField}.`);
+	return messages;
+}
+
+function decodeMcpArgs(data: Uint8Array, execId: string | undefined): CursorServerMessage {
+	let id = execId ?? "cursor-tool";
+	let name = "cursor_tool";
+	let toolName: string | undefined;
+	const args: Record<string, string> = {};
+	for (const field of readFields(data)) {
+		if (field.fieldNumber === 1 && field.value instanceof Uint8Array) name = decodeString(field.value) || name;
+		else if (field.fieldNumber === 3 && field.value instanceof Uint8Array) id = decodeString(field.value) || id;
+		else if (field.fieldNumber === 5 && field.value instanceof Uint8Array) toolName = decodeString(field.value);
+		else if (field.fieldNumber === 2 && field.value instanceof Uint8Array) {
+			const entry = decodeMapStringBytesEntry(field.value);
+			if (entry) args[entry.key] = decodeString(entry.value);
 		}
 	}
-	return { type: "toolCall", id, name, argumentsJson: args };
+	return { type: "toolCall", id, name: toolName ?? name, argumentsJson: JSON.stringify(args) };
+}
+
+function decodeMapStringBytesEntry(data: Uint8Array): { readonly key: string; readonly value: Uint8Array } | undefined {
+	let key: string | undefined;
+	let value: Uint8Array | undefined;
+	for (const field of readFields(data)) {
+		if (field.fieldNumber === 1 && field.value instanceof Uint8Array) key = decodeString(field.value);
+		else if (field.fieldNumber === 2 && field.value instanceof Uint8Array) value = field.value;
+	}
+	return key && value ? { key, value } : undefined;
 }
 
 function encodeUserMessageAction(text: string, requestId: string): Uint8Array {
 	// AgentRunRequest.action = 2 -> ConversationAction.user_message_action = 1 -> UserMessageAction.user_message = 1 -> UserMessage { text = 1, message_id = 2 }
-	const userMessage = concatBytes(encodeStringField(1, text), encodeStringField(2, `${requestId}-user`));
-	return encodeMessageField(1, encodeMessageField(1, userMessage));
+	return encodeMessageField(1, encodeMessageField(1, encodeUserMessage(text, `${requestId}-user`)));
 }
 
-function extractLastUserText(request: CursorRunRequest): string {
-	for (const message of [...request.context.messages].reverse()) {
-		if (message.role !== "user") continue;
-		if (typeof message.content === "string") return message.content;
-		const text = message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n");
-		if (text) return text;
+function encodeUserMessage(text: string, messageId: string): Uint8Array {
+	return concatBytes(encodeStringField(1, text), encodeStringField(2, messageId));
+}
+
+function encodeMcpArgs(id: string, name: string, toolName: string, argsJson: string): Uint8Array {
+	return concatBytes(encodeStringField(1, name), encodeMessageField(2, concatBytes(encodeStringField(1, "arguments"), encodeMessageField(2, textEncoder.encode(argsJson)))), encodeStringField(3, id), encodeStringField(4, "atomic"), encodeStringField(5, toolName));
+}
+
+function encodeMcpSuccessResult(text: string, isError: boolean): Uint8Array {
+	const textContent = encodeMessageField(1, encodeStringField(1, text));
+	const success = concatBytes(encodeMessageField(1, textContent), encodeVarintField(2, isError ? 1n : 0n));
+	return encodeMessageField(1, success);
+}
+
+function stringifyArguments(value: object): string {
+	return JSON.stringify(value);
+}
+
+function encodeConversationState(request: CursorRunRequest): Uint8Array {
+	const fields: Uint8Array[] = [];
+	if (request.context.systemPrompt) fields.push(encodeMessageField(1, textEncoder.encode(JSON.stringify({ role: "system", content: request.context.systemPrompt }))));
+	let currentUser: Uint8Array | undefined;
+	let requestIndex = 0;
+	const steps: Uint8Array[] = [];
+	const flushTurn = (): void => {
+		if (!currentUser) return;
+		const agentTurn = concatBytes(encodeMessageField(1, currentUser), ...steps.map((step) => encodeMessageField(2, step)), encodeStringField(3, `${request.requestId}-history-${requestIndex++}`));
+		fields.push(encodeMessageField(8, encodeMessageField(1, agentTurn)));
+		currentUser = undefined;
+		steps.length = 0;
+	};
+	for (const message of request.context.messages.slice(0, -1)) {
+		if (message.role === "user") {
+			flushTurn();
+			currentUser = encodeUserMessage(textFromMessage(message), `${request.requestId}-history-user-${requestIndex}`);
+		} else if (message.role === "assistant") {
+			for (const part of message.content) {
+				if (part.type === "text") steps.push(encodeMessageField(1, encodeStringField(1, part.text)));
+				else if (part.type === "thinking") steps.push(encodeMessageField(3, encodeStringField(1, part.thinking)));
+				else steps.push(encodeMessageField(2, encodeMessageField(15, encodeMessageField(1, encodeMcpArgs(part.id, part.name, part.name, stringifyArguments(part.arguments))))));
+			}
+		} else {
+			steps.push(encodeMessageField(2, encodeMessageField(15, encodeMessageField(2, encodeMcpSuccessResult(textFromMessage(message), message.isError)))));
+			flushTurn();
+		}
 	}
-	return "";
+	flushTurn();
+	return fields.length === 0 ? new Uint8Array() : encodeMessageField(1, concatBytes(...fields));
+}
+
+function encodeMcpTools(request: CursorRunRequest): Uint8Array {
+	const tools = request.context.tools ?? [];
+	return concatBytes(...tools.map((tool) => encodeMessageField(4, concatBytes(
+		encodeStringField(1, tool.name),
+		encodeStringField(2, "atomic"),
+		encodeStringField(3, tool.name),
+		encodeStringField(4, tool.description),
+		encodeStringField(5, JSON.stringify(tool.parameters)),
+	))));
+}
+
+function extractCurrentActionText(request: CursorRunRequest): string {
+	const last = request.context.messages.at(-1);
+	return last ? textFromMessage(last) : "";
+}
+
+function textFromMessage(message: CursorRunRequest["context"]["messages"][number]): string {
+	if (message.role === "user") {
+		if (typeof message.content === "string") return message.content;
+		return message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n");
+	}
+	if (message.role === "assistant") {
+		return message.content.map((part) => {
+			if (part.type === "text") return part.text;
+			if (part.type === "thinking") return part.thinking;
+			return `toolCall:${part.id}:${part.name}:${JSON.stringify(part.arguments)}`;
+		}).join("\n");
+	}
+	return `toolResult:${message.toolCallId}:${message.toolName}:${message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n")}`;
 }
 
 function encodeModelDetails(modelId: string, displayName: string): Uint8Array {
@@ -219,6 +315,10 @@ function encodeMessageField(fieldNumber: number, value: Uint8Array): Uint8Array 
 
 function encodeLengthDelimitedField(fieldNumber: number, value: Uint8Array): Uint8Array {
 	return concatBytes(encodeVarint(BigInt((fieldNumber << 3) | WIRE_LENGTH_DELIMITED)), encodeVarint(BigInt(value.length)), value);
+}
+
+function encodeVarintField(fieldNumber: number, value: bigint): Uint8Array {
+	return concatBytes(encodeVarint(BigInt((fieldNumber << 3) | WIRE_VARINT)), encodeVarint(value));
 }
 
 function encodeVarint(value: bigint): Uint8Array {

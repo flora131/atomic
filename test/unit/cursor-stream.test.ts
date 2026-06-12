@@ -144,6 +144,17 @@ describe("CursorStreamAdapter", () => {
 		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 0, closedStreams: 1 });
 	});
 
+	test("ends a tool-call-only Cursor turn with toolUse", async () => {
+		const transport = new CursorMockTransport({ messages: [{ type: "toolCall", id: "tool-1", name: "Read", argumentsJson: "{\"path\":\"README.md\"}" }] });
+		const adapter = new CursorStreamAdapter({ transport, uuid: () => "run-tool" });
+		const events = await collectEvents(adapter.streamSimple(model(), context(), { apiKey: "access-secret" }));
+		const done = events.at(-1);
+		assert.equal(done?.type, "done");
+		if (done?.type === "done") assert.equal(done.reason, "toolUse");
+		assert.deepEqual(events.map((event) => event.type), ["start", "toolcall_start", "toolcall_delta", "toolcall_end", "done"]);
+		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 0, closedStreams: 1 });
+	});
+
 	test("aborts active streams, sends cancel, and releases lifecycle handles", async () => {
 		const firstDelta = deferred();
 		const blocker = deferred();

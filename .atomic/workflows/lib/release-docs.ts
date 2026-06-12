@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { createGitEnvironment } from "../../../packages/coding-agent/src/utils/git-env.js";
+import { createGitEnvironment } from "@bastani/atomic";
 
 export type StaleDocTask = {
   id: string;

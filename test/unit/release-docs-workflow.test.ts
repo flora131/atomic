@@ -18,7 +18,7 @@ import {
     type StaleDocTask,
     type UpdateArtifactStatus,
 } from "../../.atomic/workflows/lib/release-docs.js";
-import { createGitEnvironment } from "../../packages/coding-agent/src/utils/git-env.js";
+import { createGitEnvironment } from "@bastani/atomic";
 
 const task = (id: string, ownerDocs: string[]): StaleDocTask => ({
     id,
@@ -104,8 +104,10 @@ describe("release-docs workflow guards", () => {
             );
 
             // The ambient Git env must be present at child-process startup to
-            // match hook runners. Without release-docs' sanitizer, nested Git
-            // commands would read the detached decoy repo instead of `repo`.
+            // match hook runners. The repo mandates Bun, so process.execPath is
+            // intentionally the Bun runtime for this child TypeScript script.
+            // Without release-docs' sanitizer, nested Git commands would read
+            // the detached decoy repo instead of `repo`.
             const output = execFileSync(process.execPath, [scriptPath], {
                 encoding: "utf8",
                 env: {

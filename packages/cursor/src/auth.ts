@@ -82,6 +82,7 @@ export interface CursorAuthServiceOptions {
 	readonly initialPollDelayMs?: number;
 	readonly maxPollDelayMs?: number;
 	readonly pollBackoffMultiplier?: number;
+	readonly fetchTimeoutMs?: number;
 	readonly apiBaseUrl?: string;
 	readonly webBaseUrl?: string;
 }
@@ -95,6 +96,7 @@ const DEFAULT_MAX_POLL_ATTEMPTS = 150;
 const DEFAULT_INITIAL_POLL_DELAY_MS = 1000;
 const DEFAULT_MAX_POLL_DELAY_MS = 10000;
 const DEFAULT_POLL_BACKOFF_MULTIPLIER = 1.2;
+const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
 export function base64Url(bytes: Uint8Array): string {
 	return Buffer.from(bytes).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
@@ -159,6 +161,7 @@ export class CursorAuthService {
 	readonly #initialPollDelayMs: number;
 	readonly #maxPollDelayMs: number;
 	readonly #pollBackoffMultiplier: number;
+	readonly #fetchTimeoutMs: number;
 	readonly #apiBaseUrl: string;
 	readonly #webBaseUrl: string;
 
@@ -172,6 +175,7 @@ export class CursorAuthService {
 		this.#initialPollDelayMs = options.initialPollDelayMs ?? DEFAULT_INITIAL_POLL_DELAY_MS;
 		this.#maxPollDelayMs = options.maxPollDelayMs ?? DEFAULT_MAX_POLL_DELAY_MS;
 		this.#pollBackoffMultiplier = options.pollBackoffMultiplier ?? DEFAULT_POLL_BACKOFF_MULTIPLIER;
+		this.#fetchTimeoutMs = options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
 		this.#apiBaseUrl = options.apiBaseUrl ?? CURSOR_API_BASE_URL;
 		this.#webBaseUrl = options.webBaseUrl ?? CURSOR_WEB_BASE_URL;
 	}
@@ -208,8 +212,9 @@ export class CursorAuthService {
 
 			let response: Response;
 			try {
-				response = await this.#fetch(pollUrl.toString(), { method: "GET", signal: callbacks.signal });
+				response = await this.fetchWithDeadline(pollUrl.toString(), { method: "GET" }, callbacks.signal);
 			} catch {
+				if (callbacks.signal?.aborted) throw new CursorAuthError("LoginCancelled", "Cursor login was cancelled.");
 				consecutiveErrors += 1;
 				if (consecutiveErrors >= 3) {
 					throw new CursorAuthError("NetworkError", "Cursor login polling failed after repeated network errors.");
@@ -266,7 +271,7 @@ export class CursorAuthService {
 		const refresh = credentials.refresh.unwrap();
 		let response: Response;
 		try {
-			response = await this.#fetch(new URL(CURSOR_REFRESH_PATH, this.#apiBaseUrl).toString(), {
+			response = await this.fetchWithDeadline(new URL(CURSOR_REFRESH_PATH, this.#apiBaseUrl).toString(), {
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${refresh}`,
@@ -299,6 +304,26 @@ export class CursorAuthService {
 			refresh: new CursorToken("refresh", tokenResponse.refreshToken || refresh),
 			expires: deriveCursorTokenExpiry(tokenResponse.accessToken, this.#now),
 		};
+	}
+
+	private async fetchWithDeadline(url: string, init: RequestInit, parentSignal?: AbortSignal): Promise<Response> {
+		const controller = new AbortController();
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		const timeoutPromise = new Promise<never>((_, reject) => {
+			timeout = setTimeout(() => {
+				controller.abort();
+				reject(new CursorAuthError("NetworkError", "Cursor authentication request timed out."));
+			}, this.#fetchTimeoutMs);
+			timeout.unref?.();
+		});
+		const onAbort = (): void => controller.abort();
+		parentSignal?.addEventListener("abort", onAbort, { once: true });
+		try {
+			return await Promise.race([this.#fetch(url, { ...init, signal: controller.signal }), timeoutPromise]);
+		} finally {
+			if (timeout) clearTimeout(timeout);
+			parentSignal?.removeEventListener("abort", onAbort);
+		}
 	}
 }
 

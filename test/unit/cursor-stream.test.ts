@@ -226,6 +226,78 @@ describe("CursorStreamAdapter", () => {
 		assert.deepEqual(adapter.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 1, closedStreams: 1, activeTurns: 0 });
 	});
 
+	test("cancels paused stream when tool-result resume write fails", async () => {
+		class FailingResumeTransport implements CursorAgentTransport {
+			readonly requests: CursorRunRequest[] = [];
+			#openStreams = 0;
+			#cancelledStreams = 0;
+			#closedStreams = 0;
+			readonly stream: CursorRunStream = {
+				id: "run-failing-resume",
+				messages: (async function* (): AsyncIterable<CursorServerMessage> {
+					yield { type: "toolCall", id: "tool-fail", name: "Read", argumentsJson: "{\"path\":\"README.md\"}" };
+				})(),
+				writeToolResult: async () => { throw new Error("write failed access-secret"); },
+				cancel: async () => {
+					this.#cancelledStreams += 1;
+					this.#closedStreams += 1;
+					this.#openStreams = Math.max(0, this.#openStreams - 1);
+				},
+				close: async () => {
+					this.#closedStreams += 1;
+					this.#openStreams = Math.max(0, this.#openStreams - 1);
+				},
+			};
+			async getUsableModels(): Promise<readonly CursorUsableModel[]> { return []; }
+			async run(request: CursorRunRequest): Promise<CursorRunStream> {
+				this.requests.push(request);
+				this.#openStreams += 1;
+				return this.stream;
+			}
+			async dispose(): Promise<void> {}
+			getLifecycleSnapshot() { return { openStreams: this.#openStreams, cancelledStreams: this.#cancelledStreams, closedStreams: this.#closedStreams }; }
+		}
+		const transport = new FailingResumeTransport();
+		const adapter = new CursorStreamAdapter({ transport, uuid: () => "run-failing-resume" });
+		await collectEvents(adapter.streamSimple(model(), context(), { apiKey: "access-secret", sessionId: "session-failing-resume" }));
+		const resumeContext: Context = { messages: [{ role: "toolResult", toolCallId: "tool-fail", toolName: "Read", content: [{ type: "text", text: "file contents" }], isError: false, timestamp: 2 }] };
+
+		const events = await collectEvents(adapter.streamSimple(model(), resumeContext, { apiKey: "access-secret", sessionId: "session-failing-resume" }));
+
+		const terminal = events.at(-1);
+		assert.equal(terminal?.type, "error");
+		if (terminal?.type === "error") assert.doesNotMatch(terminal.error.errorMessage ?? "", /access-secret/u);
+		assert.deepEqual(adapter.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 1, closedStreams: 1, activeTurns: 0 });
+	});
+
+	test("times out idle Cursor streams without leaking credentials", async () => {
+		class IdleTransport implements CursorAgentTransport {
+			#openStreams = 0;
+			#closedStreams = 0;
+			async getUsableModels(): Promise<readonly CursorUsableModel[]> { return []; }
+			async run(request: CursorRunRequest): Promise<CursorRunStream> {
+				this.#openStreams += 1;
+				return new CursorMockRunStream(request.requestId, (async function* (): AsyncIterable<CursorServerMessage> { await new Promise<void>(() => {}); })(), () => {}, () => {
+					this.#closedStreams += 1;
+					this.#openStreams = Math.max(0, this.#openStreams - 1);
+				});
+			}
+			async dispose(): Promise<void> {}
+			getLifecycleSnapshot() { return { openStreams: this.#openStreams, cancelledStreams: 0, closedStreams: this.#closedStreams }; }
+		}
+		const adapter = new CursorStreamAdapter({ transport: new IdleTransport(), uuid: () => "run-idle", streamReadTimeoutMs: 1 });
+
+		const events = await collectEvents(adapter.streamSimple(model(), context(), { apiKey: "access-secret" }));
+
+		const terminal = events.at(-1);
+		assert.equal(terminal?.type, "error");
+		if (terminal?.type === "error") {
+			assert.match(terminal.error.errorMessage ?? "", /timed out/u);
+			assert.doesNotMatch(terminal.error.errorMessage ?? "", /access-secret/u);
+		}
+		assert.deepEqual(adapter.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 0, closedStreams: 1, activeTurns: 0 });
+	});
+
 	test("rejects unmatched trailing tool results without starting a new Cursor run", async () => {
 		const transport = new CursorMockTransport({ messages: [{ type: "done", reason: "stop" }] });
 		const adapter = new CursorStreamAdapter({ transport, uuid: () => "request-orphan" });

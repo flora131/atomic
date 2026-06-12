@@ -135,6 +135,8 @@ export interface Http2CursorAgentTransportOptions {
 	readonly baseUrl?: string;
 	readonly client?: CursorHttp2Client;
 	readonly codec?: CursorProtocolCodec;
+	readonly requestTimeoutMs?: number;
+	readonly streamOpenTimeoutMs?: number;
 }
 
 const CONNECT_END_STREAM_FLAG = 0b10;
@@ -183,10 +185,33 @@ export class CursorConnectFrameDecoder {
 	}
 }
 
+async function runWithDeadline<T>(operation: (signal: AbortSignal | undefined) => Promise<T>, timeoutMs: number, parentSignal: AbortSignal | undefined, timeoutMessage: string): Promise<T> {
+	if (parentSignal?.aborted) throw new CursorTransportError("Aborted", "Cursor request aborted.");
+	const controller = new AbortController();
+	const onAbort = (): void => controller.abort();
+	parentSignal?.addEventListener("abort", onAbort, { once: true });
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	const timeoutPromise = timeoutMs > 0 ? new Promise<never>((_resolve, reject) => {
+		timeout = setTimeout(() => {
+			controller.abort();
+			reject(new CursorTransportError("NetworkError", timeoutMessage));
+		}, timeoutMs);
+		timeout.unref?.();
+	}) : undefined;
+	try {
+		return await Promise.race([operation(controller.signal), ...(timeoutPromise ? [timeoutPromise] : [])]);
+	} finally {
+		if (timeout) clearTimeout(timeout);
+		parentSignal?.removeEventListener("abort", onAbort);
+	}
+}
+
 export class Http2CursorAgentTransport implements CursorAgentTransport {
 	readonly #baseUrl: string;
 	readonly #client: CursorHttp2Client;
 	readonly #codec: CursorProtocolCodec;
+	readonly #requestTimeoutMs: number;
+	readonly #streamOpenTimeoutMs: number;
 	#openStreams = 0;
 	#cancelledStreams = 0;
 	#closedStreams = 0;
@@ -196,6 +221,8 @@ export class Http2CursorAgentTransport implements CursorAgentTransport {
 		this.#baseUrl = options.baseUrl ?? CURSOR_API_BASE_URL;
 		this.#client = options.client ?? new NodeHttp2CursorClient();
 		this.#codec = options.codec ?? new CursorProtobufProtocolCodec();
+		this.#requestTimeoutMs = options.requestTimeoutMs ?? 60_000;
+		this.#streamOpenTimeoutMs = options.streamOpenTimeoutMs ?? 60_000;
 	}
 
 	async getUsableModels(accessToken: string, requestId: string, signal?: AbortSignal): Promise<readonly CursorUsableModel[]> {
@@ -204,13 +231,18 @@ export class Http2CursorAgentTransport implements CursorAgentTransport {
 		}
 		const headers = buildCursorRpcHeaders(accessToken, requestId, "application/proto");
 		try {
-			const response = await this.#client.requestUnary({
-				baseUrl: this.#baseUrl,
-				path: CURSOR_GET_USABLE_MODELS_PATH,
-				headers,
-				body: this.#codec.encodeGetUsableModelsRequest(),
+			const response = await runWithDeadline(
+				(parentSignal) => this.#client.requestUnary({
+					baseUrl: this.#baseUrl,
+					path: CURSOR_GET_USABLE_MODELS_PATH,
+					headers,
+					body: this.#codec.encodeGetUsableModelsRequest(),
+					signal: parentSignal,
+				}),
+				this.#requestTimeoutMs,
 				signal,
-			});
+				"Cursor model discovery timed out.",
+			);
 			assertSuccessfulStatus(response.statusCode, response.body, [accessToken]);
 			const body = unwrapUnaryBody(response.body);
 			return this.#codec.decodeGetUsableModelsResponse(body);
@@ -229,7 +261,12 @@ export class Http2CursorAgentTransport implements CursorAgentTransport {
 		};
 		try {
 			const initialBody = encodeCursorConnectFrame(this.#codec.encodeRunRequest(request));
-			const handle = await this.#client.openStream({ baseUrl: this.#baseUrl, path: CURSOR_RUN_PATH, headers, signal: request.signal, initialBody });
+			const handle = await runWithDeadline(
+				(parentSignal) => this.#client.openStream({ baseUrl: this.#baseUrl, path: CURSOR_RUN_PATH, headers, signal: parentSignal, initialBody }),
+				this.#streamOpenTimeoutMs,
+				request.signal,
+				"Cursor stream open timed out.",
+			);
 			this.#openStreams += 1;
 			return new Http2CursorRunStream(
 				request.requestId,

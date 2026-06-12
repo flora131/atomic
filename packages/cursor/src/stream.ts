@@ -19,6 +19,7 @@ export interface CursorStreamAdapterOptions {
 	readonly conversationState?: CursorConversationStateStore;
 	readonly uuid?: () => string;
 	readonly pausedTurnIdleTimeoutMs?: number;
+	readonly streamReadTimeoutMs?: number;
 }
 
 interface CursorStreamRuntime {
@@ -26,9 +27,11 @@ interface CursorStreamRuntime {
 	readonly conversationState: CursorConversationStateStore;
 	readonly uuid: () => string;
 	readonly pausedTurnIdleTimeoutMs: number;
+	readonly streamReadTimeoutMs: number;
 }
 
 const DEFAULT_PAUSED_TURN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_STREAM_READ_TIMEOUT_MS = 10 * 60 * 1000;
 
 type IteratorReadResult =
 	| { readonly kind: "message"; readonly result: IteratorResult<CursorServerMessage> }
@@ -47,6 +50,7 @@ export class CursorStreamAdapter {
 			conversationState: options.conversationState ?? new CursorConversationStateStore(),
 			uuid: options.uuid ?? defaultCursorUuid,
 			pausedTurnIdleTimeoutMs: options.pausedTurnIdleTimeoutMs ?? DEFAULT_PAUSED_TURN_IDLE_TIMEOUT_MS,
+			streamReadTimeoutMs: options.streamReadTimeoutMs ?? DEFAULT_STREAM_READ_TIMEOUT_MS,
 		};
 	}
 
@@ -113,7 +117,7 @@ export class CursorStreamAdapter {
 			}
 			const iterator = runStream.messages[Symbol.asyncIterator]();
 			while (true) {
-				const next = await readNextCursorMessage(iterator, options.signal);
+				const next = await readNextCursorMessage(iterator, options.signal, this.#runtime.streamReadTimeoutMs);
 				if (next.kind === "aborted") {
 					throw new CursorStreamAbortError();
 				}
@@ -154,10 +158,13 @@ export class CursorStreamAdapter {
 			}
 		} catch (error) {
 			const aborted = error instanceof CursorStreamAbortError || options?.signal?.aborted;
+			const timedOut = error instanceof CursorStreamTimeoutError;
 			output.stopReason = aborted ? "aborted" : "error";
 			output.errorMessage = aborted
 				? "Cursor stream aborted."
-				: sanitizeDiagnosticText(error instanceof Error ? error.message : "Cursor stream failed.", [options?.apiKey ?? ""]);
+				: timedOut
+					? "Cursor stream timed out while waiting for provider output."
+					: sanitizeDiagnosticText(error instanceof Error ? error.message : "Cursor stream failed.", [options?.apiKey ?? ""]);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			terminalEventSent = true;
 			if (aborted && runStream && conversationId) {
@@ -184,6 +191,13 @@ class CursorStreamAbortError extends Error {
 	constructor() {
 		super("Cursor stream aborted.");
 		this.name = "CursorStreamAbortError";
+	}
+}
+
+class CursorStreamTimeoutError extends Error {
+	constructor() {
+		super("Cursor stream timed out while waiting for provider output.");
+		this.name = "CursorStreamTimeoutError";
 	}
 }
 
@@ -303,22 +317,25 @@ function updateUsage(output: AssistantMessage, model: Model<Api>, message: Extra
 	output.usage.cost = calculateCost(model, output.usage);
 }
 
-async function readNextCursorMessage(iterator: AsyncIterator<CursorServerMessage>, signal?: AbortSignal): Promise<IteratorReadResult> {
-	if (!signal) {
-		return { kind: "message", result: await iterator.next() };
-	}
-	if (signal.aborted) {
-		return { kind: "aborted" };
-	}
+async function readNextCursorMessage(iterator: AsyncIterator<CursorServerMessage>, signal: AbortSignal | undefined, timeoutMs: number): Promise<IteratorReadResult> {
+	if (signal?.aborted) return { kind: "aborted" };
 	let abortListener: (() => void) | undefined;
-	const abortPromise = new Promise<IteratorReadResult>((resolve) => {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	const abortPromise = signal ? new Promise<IteratorReadResult>((resolve) => {
 		abortListener = () => resolve({ kind: "aborted" });
 		signal.addEventListener("abort", abortListener, { once: true });
-	});
+	}) : undefined;
+	const timeoutPromise = timeoutMs > 0 ? new Promise<IteratorReadResult>((_resolve, reject) => {
+		timeout = setTimeout(() => reject(new CursorStreamTimeoutError()), timeoutMs);
+		timeout.unref?.();
+	}) : undefined;
 	const messagePromise = iterator.next().then((result): IteratorReadResult => ({ kind: "message", result }));
-	const result = await Promise.race([messagePromise, abortPromise]);
-	if (abortListener) signal.removeEventListener("abort", abortListener);
-	return result;
+	try {
+		return await Promise.race([messagePromise, ...(abortPromise ? [abortPromise] : []), ...(timeoutPromise ? [timeoutPromise] : [])]);
+	} finally {
+		if (abortListener) signal?.removeEventListener("abort", abortListener);
+		if (timeout) clearTimeout(timeout);
+	}
 }
 
 export function createCursorStreamAdapter(options: CursorStreamAdapterOptions): CursorStreamAdapter {

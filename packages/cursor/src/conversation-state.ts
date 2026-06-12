@@ -61,12 +61,18 @@ export class CursorConversationStateStore {
 		if (!turn) throw new Error(`Cursor has no paused tool turn for conversation ${conversationId}.`);
 		this.cleanupTurn(turn);
 		this.#activeTurns.set(conversationId, { conversationId, stream: turn.stream, pendingTools: turn.pendingTools });
-		for (const result of results) {
-			const pending = turn.pendingTools.get(result.toolCallId);
-			if (!pending) throw new Error(`Cursor tool result ${result.toolCallId} does not match a paused tool call.`);
-			await turn.stream.writeToolResult({ ...result, execId: pending.execId, execNumericId: pending.execNumericId });
+		try {
+			for (const result of results) {
+				const pending = turn.pendingTools.get(result.toolCallId);
+				if (!pending) throw new Error(`Cursor tool result ${result.toolCallId} does not match a paused tool call.`);
+				await turn.stream.writeToolResult({ ...result, execId: pending.execId, execNumericId: pending.execNumericId });
+			}
+			return turn.stream;
+		} catch (error) {
+			this.#activeTurns.delete(conversationId);
+			await turn.stream.cancel();
+			throw error;
 		}
-		return turn.stream;
 	}
 
 	completeTurn(conversationId: string): void {

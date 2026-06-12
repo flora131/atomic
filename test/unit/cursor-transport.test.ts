@@ -380,6 +380,35 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.ok(client.unaryRequests[0]?.body instanceof Uint8Array);
 	});
 
+	test("transport request deadlines abort hung model discovery and stream opening", async () => {
+		class NeverClient implements CursorHttp2Client {
+			unarySignal: AbortSignal | undefined;
+			streamSignal: AbortSignal | undefined;
+			async requestUnary(request: { readonly signal?: AbortSignal }): Promise<{ readonly body: Uint8Array; readonly headers: Record<string, string>; readonly statusCode?: number }> {
+				this.unarySignal = request.signal;
+				return await new Promise(() => {});
+			}
+			async openStream(request: { readonly signal?: AbortSignal }): Promise<CursorHttp2StreamHandle> {
+				this.streamSignal = request.signal;
+				return await new Promise(() => {});
+			}
+			async dispose(): Promise<void> {}
+		}
+		const client = new NeverClient();
+		const transport = new Http2CursorAgentTransport({ client, codec: new FakeCodec(), requestTimeoutMs: 1, streamOpenTimeoutMs: 1 });
+
+		await assert.rejects(
+			() => transport.getUsableModels("secret", "request-timeout"),
+			(error) => error instanceof CursorTransportError && error.code === "NetworkError" && /timed out/u.test(error.message),
+		);
+		assert.equal(client.unarySignal?.aborted, true);
+		await assert.rejects(
+			() => transport.run({ accessToken: "secret", requestId: "run-timeout", model, resolvedModelId: "composer-2", context }),
+			(error) => error instanceof CursorTransportError && error.code === "NetworkError" && /timed out/u.test(error.message),
+		);
+		assert.equal(client.streamSignal?.aborted, true);
+	});
+
 	test("getUsableModels sends Cursor headers/path/body and decodes response", async () => {
 		const client = new FakeHttp2Client();
 		const codec = new FakeCodec();

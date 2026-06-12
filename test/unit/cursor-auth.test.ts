@@ -151,6 +151,28 @@ describe("CursorAuthService", () => {
 		);
 	});
 
+	test("applies fetch deadlines to polling and refresh without leaking secrets", async () => {
+		const neverFetch: CursorFetch = async () => await new Promise<Response>(() => {});
+		const pollService = new CursorAuthService({
+			fetch: neverFetch,
+			randomBytes: deterministicRandom,
+			uuid: () => "uuid-deadline",
+			sleep: async () => {},
+			fetchTimeoutMs: 1,
+			maxPollAttempts: 3,
+		});
+		await assert.rejects(
+			pollService.login(loginCallbacks([])),
+			(error) => error instanceof CursorAuthError && error.code === "NetworkError" && !error.message.includes("uuid-deadline"),
+		);
+
+		const refreshService = new CursorAuthService({ fetch: neverFetch, fetchTimeoutMs: 1 });
+		await assert.rejects(
+			refreshService.refreshToken({ access: "old-access-secret", refresh: "old-refresh-secret", expires: 0 }),
+			(error) => error instanceof CursorAuthError && error.code === "NetworkError" && !error.message.includes("old-refresh-secret"),
+		);
+	});
+
 	test("derives a safe fallback expiry for non-JWT tokens", () => {
 		assert.equal(deriveCursorTokenExpiry("not-a-jwt", () => 10), 10 + 60 * 60 * 1000);
 	});

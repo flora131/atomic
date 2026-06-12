@@ -21,6 +21,10 @@
 - Fixed cross-process structured-output file capture to preserve flat schema-valid params in `output.json` and write call metadata to an `output.meta.json` sidecar so parent readback can reject stale or non-final captures instead of accepting any schema-valid `output.json` payload by existence alone ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
 - Fixed bundled subagent handling so explicit empty `tools: []` plus `outputSchema` grants only the schema-backed `structured_output` runtime tool instead of restoring default tools ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
 
+### Fixed
+
+- Fixed the bundled experimental Cursor provider to honor per-request stream deadlines across open/read/resume writes, reset timed-out or aborted streams, clean up replaced paused turns safely, catch cleanup cancellation failures, and tolerate non-MCP Cursor exec protocol messages without ending assistant turns ([#1286](https://github.com/bastani-inc/atomic/issues/1286)).
+
 ### Security
 
 - Kept Cursor credentials OAuth-only with token/header redaction and no local proxy or child-process bridge.

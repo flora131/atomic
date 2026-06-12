@@ -84,6 +84,7 @@ export class CursorStreamAdapter {
 		let thinkingIndex: number | undefined;
 		let terminalEventSent = false;
 		let sawToolCall = false;
+		const effectiveTimeoutMs = options?.timeoutMs ?? this.#runtime.streamReadTimeoutMs;
 
 		try {
 			if (!options?.apiKey) {
@@ -101,23 +102,24 @@ export class CursorStreamAdapter {
 			const resolvedModelId = resolveCursorModelVariant(model.id, model.thinkingLevelMap, options.reasoning);
 			const trailingToolResults = getTrailingToolResults(context);
 			if (trailingToolResults.length > 0) {
-				runStream = await this.#runtime.conversationState.resumeTurnWithToolResults(conversationId, trailingToolResults);
+				runStream = await this.#runtime.conversationState.resumeTurnWithToolResults(conversationId, trailingToolResults, { signal: options.signal, timeoutMs: effectiveTimeoutMs });
 			} else {
 				runStream = await this.#runtime.transport.run({
-				accessToken: options.apiKey,
-				requestId,
-				conversationId,
-				model,
-				resolvedModelId,
-				thinkingLevel: options.reasoning,
-				context,
-				signal: options.signal,
+					accessToken: options.apiKey,
+					requestId,
+					conversationId,
+					model,
+					resolvedModelId,
+					thinkingLevel: options.reasoning,
+					context,
+					signal: options.signal,
+					openTimeoutMs: effectiveTimeoutMs,
 				});
 				this.#runtime.conversationState.registerTurn(conversationId, runStream);
 			}
 			const iterator = runStream.messages[Symbol.asyncIterator]();
 			while (true) {
-				const next = await readNextCursorMessage(iterator, options.signal, this.#runtime.streamReadTimeoutMs);
+				const next = await readNextCursorMessage(iterator, options.signal, effectiveTimeoutMs);
 				if (next.kind === "aborted") {
 					throw new CursorStreamAbortError();
 				}
@@ -141,6 +143,8 @@ export class CursorStreamAdapter {
 					break;
 				} else if (message.type === "usage") {
 					updateUsage(output, model, message);
+				} else if (message.type === "nonMcpExec") {
+					continue;
 				} else {
 					closeOpenContent(stream, output, textIndex, thinkingIndex);
 					output.stopReason = message.reason;
@@ -167,11 +171,13 @@ export class CursorStreamAdapter {
 					: sanitizeDiagnosticText(error instanceof Error ? error.message : "Cursor stream failed.", [options?.apiKey ?? ""]);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			terminalEventSent = true;
-			if (aborted && runStream && conversationId) {
+			if ((aborted || timedOut) && runStream && conversationId) {
 				try {
 					await this.#runtime.conversationState.cancelTurn(conversationId);
 				} catch {
-					// Abort terminal events must not be suppressed by best-effort cleanup failures.
+					// Terminal events must not be suppressed by best-effort cleanup failures.
+				} finally {
+					runStream = undefined;
 				}
 			}
 		} finally {

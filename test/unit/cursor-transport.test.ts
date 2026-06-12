@@ -359,10 +359,22 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.throws(() => codec.decodeRunFrame({ flags: 0, data: agentMessage, endStream: false }), /neither protobuf Value nor valid UTF-8/u);
 	});
 
-	test("protobuf codec rejects unsupported exec server messages", () => {
+	test("protobuf codec decodes non-MCP exec server messages as safe notifications", () => {
 		const codec = new CursorProtobufProtocolCodec();
-		const unsupportedExec = __cursorProtoTest.encodeMessageField(2, __cursorProtoTest.encodeStringField(2, "native shell"));
-		assert.throws(() => codec.decodeRunFrame({ flags: 0, data: unsupportedExec, endStream: false }), /Unsupported Cursor exec server message/u);
+		const requestContextExec = __cursorProtoTest.encodeMessageField(2, __cursorProtoTest.concatBytes(
+			__cursorProtoTest.encodeVarintField(1, 55n),
+			__cursorProtoTest.encodeMessageField(10, new Uint8Array()),
+			__cursorProtoTest.encodeStringField(15, "exec-context"),
+		));
+		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: requestContextExec, endStream: false }), [{
+			type: "nonMcpExec",
+			fieldNumber: 10,
+			execId: "exec-context",
+			execNumericId: 55,
+		}]);
+
+		const nativeExec = __cursorProtoTest.encodeMessageField(2, __cursorProtoTest.encodeStringField(2, "native shell"));
+		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: nativeExec, endStream: false }), [{ type: "nonMcpExec", fieldNumber: 2 }]);
 	});
 
 	test("production transport defaults to the isolated protobuf codec", async () => {
@@ -395,7 +407,7 @@ describe("Cursor HTTP2 transport boundary", () => {
 			async dispose(): Promise<void> {}
 		}
 		const client = new NeverClient();
-		const transport = new Http2CursorAgentTransport({ client, codec: new FakeCodec(), requestTimeoutMs: 1, streamOpenTimeoutMs: 1 });
+		const transport = new Http2CursorAgentTransport({ client, codec: new FakeCodec(), requestTimeoutMs: 1, streamOpenTimeoutMs: 60_000 });
 
 		await assert.rejects(
 			() => transport.getUsableModels("secret", "request-timeout"),
@@ -403,7 +415,7 @@ describe("Cursor HTTP2 transport boundary", () => {
 		);
 		assert.equal(client.unarySignal?.aborted, true);
 		await assert.rejects(
-			() => transport.run({ accessToken: "secret", requestId: "run-timeout", model, resolvedModelId: "composer-2", context }),
+			() => transport.run({ accessToken: "secret", requestId: "run-timeout", model, resolvedModelId: "composer-2", context, openTimeoutMs: 1 }),
 			(error) => error instanceof CursorTransportError && error.code === "NetworkError" && /timed out/u.test(error.message),
 		);
 		assert.equal(client.streamSignal?.aborted, true);

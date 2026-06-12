@@ -48,6 +48,7 @@ export interface CursorRunRequest {
 	readonly thinkingLevel?: ThinkingLevel;
 	readonly context: Context;
 	readonly signal?: AbortSignal;
+	readonly openTimeoutMs?: number;
 }
 
 export type CursorDoneReason = "stop" | "length" | "toolUse";
@@ -58,6 +59,7 @@ export type CursorServerMessage =
 	| { readonly type: "toolCall"; readonly id: string; readonly name: string; readonly argumentsJson: string; readonly execId?: string; readonly execNumericId?: number }
 	| { readonly type: "usage"; readonly kind?: "checkpoint"; readonly inputTokens?: number; readonly outputTokens?: number; readonly cacheReadTokens?: number; readonly cacheWriteTokens?: number; readonly usedTokens?: number; readonly maxTokens?: number }
 	| { readonly type: "usage"; readonly kind: "outputDelta"; readonly outputTokens: number }
+	| { readonly type: "nonMcpExec"; readonly fieldNumber: number; readonly execId?: string; readonly execNumericId?: number }
 	| { readonly type: "done"; readonly reason: CursorDoneReason };
 
 export interface CursorToolResultMessage {
@@ -69,10 +71,15 @@ export interface CursorToolResultMessage {
 	readonly execNumericId?: number;
 }
 
+export interface CursorWriteOptions {
+	readonly signal?: AbortSignal;
+	readonly timeoutMs?: number;
+}
+
 export interface CursorRunStream {
 	readonly id: string;
 	readonly messages: AsyncIterable<CursorServerMessage>;
-	writeToolResult(result: CursorToolResultMessage): Promise<void>;
+	writeToolResult(result: CursorToolResultMessage, options?: CursorWriteOptions): Promise<void>;
 	cancel(): Promise<void>;
 	close(): Promise<void>;
 }
@@ -98,7 +105,7 @@ export interface CursorHttp2UnaryResponse {
 
 export interface CursorHttp2StreamHandle {
 	readonly frames: AsyncIterable<Uint8Array>;
-	write(data: Uint8Array): Promise<void>;
+	write(data: Uint8Array, options?: CursorWriteOptions): Promise<void>;
 	close(): Promise<void>;
 	cancel(): Promise<void>;
 }
@@ -140,6 +147,7 @@ export interface Http2CursorAgentTransportOptions {
 }
 
 const CONNECT_END_STREAM_FLAG = 0b10;
+const DEFAULT_CANCEL_WRITE_TIMEOUT_MS = 1_000;
 
 export function encodeCursorConnectFrame(data: Uint8Array, flags = 0): Uint8Array {
 	const frame = new Uint8Array(5 + data.length);
@@ -263,7 +271,7 @@ export class Http2CursorAgentTransport implements CursorAgentTransport {
 			const initialBody = encodeCursorConnectFrame(this.#codec.encodeRunRequest(request));
 			const handle = await runWithDeadline(
 				(parentSignal) => this.#client.openStream({ baseUrl: this.#baseUrl, path: CURSOR_RUN_PATH, headers, signal: parentSignal, initialBody }),
-				this.#streamOpenTimeoutMs,
+				request.openTimeoutMs ?? this.#streamOpenTimeoutMs,
 				request.signal,
 				"Cursor stream open timed out.",
 			);
@@ -311,24 +319,36 @@ class Http2CursorRunStream implements CursorRunStream {
 		this.messages = this.createMessages();
 	}
 
-	async writeToolResult(result: CursorToolResultMessage): Promise<void> {
+	async writeToolResult(result: CursorToolResultMessage, options?: CursorWriteOptions): Promise<void> {
 		if (this.#closed) throw new CursorTransportError("ProtocolError", "Cannot write Cursor tool result to a closed stream.");
-		await this.handle.write(encodeCursorConnectFrame(this.codec.encodeToolResult(result)));
+		try {
+			await this.handle.write(encodeCursorConnectFrame(this.codec.encodeToolResult(result)), options);
+		} catch (error) {
+			await this.cancel().catch(() => undefined);
+			throw error;
+		}
 	}
 
 	async cancel(): Promise<void> {
 		if (this.#cancelled) return;
 		this.#cancelled = true;
+		let cancelError: Error | undefined;
 		try {
-			await this.handle.write(encodeCursorConnectFrame(this.codec.encodeCancelRequest()));
+			await this.handle.write(encodeCursorConnectFrame(this.codec.encodeCancelRequest()), { timeoutMs: DEFAULT_CANCEL_WRITE_TIMEOUT_MS }).catch(() => undefined);
 		} finally {
 			this.onCancel();
-			await this.handle.cancel();
-			if (!this.#closed) {
-				this.#closed = true;
-				this.onClose();
+			try {
+				await this.handle.cancel();
+			} catch (error) {
+				cancelError = toError(error);
+			} finally {
+				if (!this.#closed) {
+					this.#closed = true;
+					this.onClose();
+				}
 			}
 		}
+		if (cancelError) throw cancelError;
 	}
 
 	async close(): Promise<void> {
@@ -414,7 +434,7 @@ class NodeHttp2CursorClient implements CursorHttp2Client {
 		});
 		const handle = new NodeHttp2CursorStreamHandle(stream, session, () => this.closeSession(session), request.signal);
 		try {
-			if (request.initialBody) await handle.write(request.initialBody);
+			if (request.initialBody) await handle.write(request.initialBody, { signal: request.signal });
 			return handle;
 		} catch (error) {
 			await handle.cancel();
@@ -461,14 +481,44 @@ class NodeHttp2CursorStreamHandle implements CursorHttp2StreamHandle {
 		this.signal?.addEventListener("abort", this.abort, { once: true });
 	}
 
-	async write(data: Uint8Array): Promise<void> {
+	async write(data: Uint8Array, options: CursorWriteOptions = {}): Promise<void> {
 		if (this.#closed) return;
-		await new Promise<void>((resolve, reject) => {
-			this.stream.write(Buffer.from(data), (error?: Error | null) => {
-				if (error) reject(error);
-				else resolve();
+		if (options.signal?.aborted) {
+			await this.cancel();
+			throw new CursorTransportError("Aborted", "Cursor stream write aborted.");
+		}
+		let abortListener: (() => void) | undefined;
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		let settled = false;
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const rejectAndCancel = (error: Error): void => {
+					if (settled) return;
+					settled = true;
+					this.cancel().catch(() => undefined);
+					reject(error);
+				};
+				abortListener = () => rejectAndCancel(new CursorTransportError("Aborted", "Cursor stream write aborted."));
+				options.signal?.addEventListener("abort", abortListener, { once: true });
+				if (options.timeoutMs && options.timeoutMs > 0) {
+					timeout = setTimeout(() => rejectAndCancel(new CursorTransportError("NetworkError", "Cursor stream write timed out.")), options.timeoutMs);
+					timeout.unref?.();
+				}
+				try {
+					this.stream.write(Buffer.from(data), (error?: Error | null) => {
+						if (settled) return;
+						settled = true;
+						if (error) reject(error);
+						else resolve();
+					});
+				} catch (error) {
+					rejectAndCancel(toTransportError(error));
+				}
 			});
-		});
+		} finally {
+			if (abortListener) options.signal?.removeEventListener("abort", abortListener);
+			if (timeout) clearTimeout(timeout);
+		}
 	}
 
 	async close(): Promise<void> {
@@ -491,7 +541,7 @@ class NodeHttp2CursorStreamHandle implements CursorHttp2StreamHandle {
 
 	private readonly abort = (): void => {
 		this.fail(new CursorTransportError("Aborted", "Cursor stream request aborted."));
-		void this.cancel();
+		this.cancel().catch(() => undefined);
 	};
 
 	private readonly onResponse = (headers: IncomingHttpHeaders): void => {

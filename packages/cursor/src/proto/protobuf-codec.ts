@@ -146,16 +146,22 @@ function decodeExecServerMessage(data: Uint8Array): readonly CursorServerMessage
 	let execNumericId: number | undefined;
 	let execId: string | undefined;
 	const mcpPayloads: Uint8Array[] = [];
-	let unsupportedField: number | undefined;
+	const nonMcpFieldNumbers: number[] = [];
 	for (const field of readFields(data)) {
 		if (field.fieldNumber === 1 && typeof field.value === "bigint") execNumericId = Number(field.value);
 		else if (field.fieldNumber === 15 && field.value instanceof Uint8Array) execId = decodeString(field.value);
 		else if (field.fieldNumber === 11 && field.value instanceof Uint8Array) mcpPayloads.push(field.value);
-		else if (field.fieldNumber !== 1 && field.value instanceof Uint8Array) unsupportedField = field.fieldNumber;
+		else if (field.fieldNumber !== 1 && field.fieldNumber !== 11 && field.fieldNumber !== 15) nonMcpFieldNumbers.push(field.fieldNumber);
 	}
-	const messages = mcpPayloads.map((payload) => decodeMcpArgs(payload, execId, execNumericId));
-	if (messages.length === 0 && unsupportedField !== undefined) throw new Error(`Unsupported Cursor exec server message field ${unsupportedField}.`);
-	return messages;
+	return [
+		...mcpPayloads.map((payload) => decodeMcpArgs(payload, execId, execNumericId)),
+		...nonMcpFieldNumbers.map((fieldNumber) => ({
+			type: "nonMcpExec" as const,
+			fieldNumber,
+			...(execId ? { execId } : {}),
+			...(execNumericId !== undefined ? { execNumericId } : {}),
+		})),
+	];
 }
 
 function decodeMcpArgs(data: Uint8Array, execId: string | undefined, execNumericId: number | undefined): CursorServerMessage {

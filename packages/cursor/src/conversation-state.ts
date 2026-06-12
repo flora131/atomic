@@ -1,4 +1,4 @@
-import type { CursorRunStream, CursorServerMessage, CursorToolResultMessage, CursorTransportLifecycleSnapshot } from "./transport.js";
+import type { CursorRunStream, CursorServerMessage, CursorToolResultMessage, CursorTransportLifecycleSnapshot, CursorWriteOptions } from "./transport.js";
 
 export interface CursorConversationSnapshot extends CursorTransportLifecycleSnapshot {
 	readonly activeTurns: number;
@@ -24,16 +24,20 @@ export interface CursorPauseTurnOptions {
 	readonly idleTimeoutMs?: number;
 }
 
+export type CursorResumeTurnOptions = CursorWriteOptions;
+
 export class CursorConversationStateStore {
 	readonly #activeTurns = new Map<string, ActiveTurn>();
 
 	registerTurn(conversationId: string, stream: CursorRunStream): void {
+		const existing = this.#activeTurns.get(conversationId);
+		if (existing) this.replaceExistingTurn(existing, stream);
 		this.#activeTurns.set(conversationId, { conversationId, stream, pendingTools: new Map() });
 	}
 
 	pauseTurnForTools(conversationId: string, stream: CursorRunStream, toolCalls: readonly Extract<CursorServerMessage, { readonly type: "toolCall" }>[], options: CursorPauseTurnOptions = {}): void {
 		const existing = this.#activeTurns.get(conversationId);
-		if (existing && existing.stream !== stream) void this.cancelTurn(conversationId);
+		if (existing && existing.stream !== stream) this.replaceExistingTurn(existing, stream);
 		else if (existing) this.cleanupTurn(existing);
 		const pendingTools = new Map<string, PendingCursorToolCall>();
 		for (const toolCall of toolCalls) {
@@ -46,31 +50,35 @@ export class CursorConversationStateStore {
 		}
 		let abortCleanup: (() => void) | undefined;
 		if (options.signal) {
-			const onAbort = (): void => { void this.cancelTurn(conversationId); };
+			const onAbort = (): void => this.cancelTurnBestEffort(conversationId);
 			options.signal.addEventListener("abort", onAbort, { once: true });
 			abortCleanup = () => options.signal?.removeEventListener("abort", onAbort);
 		}
-		const idleTimer = options.idleTimeoutMs && options.idleTimeoutMs > 0 ? setTimeout(() => { void this.cancelTurn(conversationId); }, options.idleTimeoutMs) : undefined;
+		const idleTimer = options.idleTimeoutMs && options.idleTimeoutMs > 0 ? setTimeout(() => this.cancelTurnBestEffort(conversationId), options.idleTimeoutMs) : undefined;
 		idleTimer?.unref?.();
 		this.#activeTurns.set(conversationId, { conversationId, stream, pendingTools, ...(abortCleanup ? { abortCleanup } : {}), ...(idleTimer ? { idleTimer } : {}) });
-		if (options.signal?.aborted) void this.cancelTurn(conversationId);
+		if (options.signal?.aborted) this.cancelTurnBestEffort(conversationId);
 	}
 
-	async resumeTurnWithToolResults(conversationId: string, results: readonly CursorToolResultMessage[]): Promise<CursorRunStream> {
+	async resumeTurnWithToolResults(conversationId: string, results: readonly CursorToolResultMessage[], options: CursorResumeTurnOptions = {}): Promise<CursorRunStream> {
 		const turn = this.#activeTurns.get(conversationId);
 		if (!turn) throw new Error(`Cursor has no paused tool turn for conversation ${conversationId}.`);
-		this.cleanupTurn(turn);
-		this.#activeTurns.set(conversationId, { conversationId, stream: turn.stream, pendingTools: turn.pendingTools });
 		try {
+			for (const result of results) {
+				if (!turn.pendingTools.has(result.toolCallId)) throw new Error(`Cursor tool result ${result.toolCallId} does not match a paused tool call.`);
+			}
 			for (const result of results) {
 				const pending = turn.pendingTools.get(result.toolCallId);
 				if (!pending) throw new Error(`Cursor tool result ${result.toolCallId} does not match a paused tool call.`);
-				await turn.stream.writeToolResult({ ...result, execId: pending.execId, execNumericId: pending.execNumericId });
+				await turn.stream.writeToolResult({ ...result, execId: pending.execId, execNumericId: pending.execNumericId }, options);
 			}
+			if (this.#activeTurns.get(conversationId) !== turn) throw new Error(`Cursor paused tool turn for conversation ${conversationId} was cancelled before resume completed.`);
+			this.cleanupTurn(turn);
+			this.#activeTurns.set(conversationId, { conversationId, stream: turn.stream, pendingTools: turn.pendingTools });
 			return turn.stream;
 		} catch (error) {
-			this.#activeTurns.delete(conversationId);
-			await turn.stream.cancel();
+			if (this.#activeTurns.get(conversationId) === turn) await this.cancelSpecificTurn(turn).catch(() => undefined);
+			else this.cleanupTurn(turn);
 			throw error;
 		}
 	}
@@ -84,9 +92,7 @@ export class CursorConversationStateStore {
 	async cancelTurn(conversationId: string): Promise<void> {
 		const turn = this.#activeTurns.get(conversationId);
 		if (!turn) return;
-		this.cleanupTurn(turn);
-		this.#activeTurns.delete(conversationId);
-		await turn.stream.cancel();
+		await this.cancelSpecificTurn(turn);
 	}
 
 	async dispose(): Promise<void> {
@@ -96,6 +102,22 @@ export class CursorConversationStateStore {
 			this.cleanupTurn(turn);
 			await turn.stream.cancel();
 		}));
+	}
+
+	private replaceExistingTurn(existing: ActiveTurn, replacementStream: CursorRunStream): void {
+		this.cleanupTurn(existing);
+		this.#activeTurns.delete(existing.conversationId);
+		if (existing.stream !== replacementStream) existing.stream.cancel().catch(() => undefined);
+	}
+
+	private cancelTurnBestEffort(conversationId: string): void {
+		this.cancelTurn(conversationId).catch(() => undefined);
+	}
+
+	private async cancelSpecificTurn(turn: ActiveTurn): Promise<void> {
+		this.cleanupTurn(turn);
+		if (this.#activeTurns.get(turn.conversationId) === turn) this.#activeTurns.delete(turn.conversationId);
+		await turn.stream.cancel();
 	}
 
 	private cleanupTurn(turn: ActiveTurn): void {

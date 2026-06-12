@@ -144,6 +144,27 @@ You are a read-only inspector. Inspect the current diff, cite evidence with file
 
 Use `completionGuard: false` sparingly. It opts a user-authored agent out of automatic completion-guard reminders and is intended for read-only agents whose prompt already prevents premature completion. Do not use it to bypass required implementation or validation work.
 
+If an agent or chain step uses an explicit empty `tools: []` allowlist together with `outputSchema`, Atomic starts the child with only `structured_output` enabled for the required final answer. It does not omit `--tools` and accidentally restore default tools. Path-only tool entries remain extension paths and do not create a builtin allowlist by themselves.
+
+## Structured output schemas
+
+Chain and parallel steps can declare an `outputSchema` when the parent needs reliable machine-readable handoff data. Atomic passes that schema to the child as a schema-specific `structured_output` tool backed by the shared Atomic factory. The child must finish by calling `structured_output` exactly once with arguments that match the schema directly:
+
+```ts
+structured_output({
+  files: ["src/auth.ts"],
+  risks: ["missing regression test"],
+})
+```
+
+`outputSchema` itself must be a top-level object schema because the schema is used directly as the tool's argument contract. Wrap array or primitive handoff values in an explicit object field, such as `{ items: [...] }` or `{ value: ... }`.
+
+Do not wrap the payload as `structured_output({ value: ... })` unless your own schema explicitly defines a top-level `value` field. The child runtime writes the flat schema-valid params to `output.json` and call metadata (`toolName`, `toolCallId`, `success`, `terminate`) to the `output.meta.json` sidecar; the parent validates both files before checking transcript finality. Prose-only completion, missing tool calls, missing sidecar metadata, invalid schema data, duplicate structured-output calls, stale output-file captures, sibling tool calls in the same assistant batch, and any assistant/custom/tool-result messages after the successful structured-output result fail the step. The parent accepts cross-process captures only when the transcript proves the same `structured_output` call was the final successful terminating action, then returns the validated flat value as `result.structuredOutput` and in named-chain references under `outputs.name.structured`.
+
+Ordinary children without `outputSchema` can still end on the generic default `structured_output` tool. If the final child message is a successful `structured_output` tool result with text JSON and there is no assistant follow-up, that JSON becomes `finalOutput` and chain handoff text, but no validated `result.structuredOutput` field is set.
+
+Dynamic fanout `collect.outputSchema` is different: it validates the collected result array after child runs finish, not a child tool-call argument object. Collection schemas remain general JSON Schemas and may use array roots such as `{ "type": "array", "minItems": 1 }`.
+
 ## Fallback models
 
 Agents can define ordered `fallbackModels` for retryable provider or model failures such as rate limits, quota/auth problems, unavailable models, network timeouts, or 5xx errors. Atomic tries the requested primary model first, then configured fallbacks, and finally appends the current user-selected model as the last fallback candidate when available.

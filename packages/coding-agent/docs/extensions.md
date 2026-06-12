@@ -1817,7 +1817,7 @@ pi.registerTool({
 
 **Signaling errors:** To mark a tool execution as failed (sets `isError: true` on the result and reports it to the LLM), throw an error from `execute`. Returning a value never sets the error flag regardless of what properties you include in the return object.
 
-**Early termination:** Return `terminate: true` from `execute()` to hint that the automatic follow-up LLM call should be skipped after the current tool batch. This only takes effect when every finalized tool result in that batch is terminating. See [examples/extensions/structured-output.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/examples/extensions/structured-output.ts) for a minimal example where the agent ends on a final structured-output tool call.
+**Early termination:** Return `terminate: true` from `execute()` to hint that the automatic follow-up LLM call should be skipped after the current tool batch. This only takes effect when every finalized tool result in that batch is terminating. Atomic ships a built-in `structured_output` final-answer tool for the common machine-readable-result case; use `createStructuredOutputTool({ schema, capture, output, name })` when an extension or SDK session needs a stricter schema or custom tool name. The factory requires a top-level object tool-argument schema, uses that schema as the tool parameters directly, captures the flat tool arguments, and terminates the turn without a `{ value: ... }` wrapper. Wrap array or primitive final values in explicit object fields such as `{ items: [...] }` or `{ value: ... }`; in text print mode, a terminating `structured_output` result is emitted to stdout as the final response. Large final JSON stays inline for this tool instead of being redirected to `<persisted-output>`, preserving the machine-readable final-answer contract. Custom factory names are additive: registering a tool such as `final_decision` does not suppress the default generic `structured_output` builtin. For strict contracts, use a same-name `structured_output` override, an explicit `tools: ["final_decision"]` allowlist, or `excludedTools: ["structured_output"]`.
 
 ```typescript
 // Correct: throw to signal an error
@@ -2592,7 +2592,7 @@ All examples in [examples/extensions/](https://github.com/bastani-inc/atomic/tre
 | `questionnaire.ts` | Multi-step wizard tool | `registerTool`, `ui.custom` |
 | `todo.ts` | Stateful tool with persistence | `registerTool`, `appendEntry`, `renderResult`, session events |
 | `dynamic-tools.ts` | Register tools after startup and during commands | `registerTool`, `session_start`, `registerCommand` |
-| `structured-output.ts` | Final structured-output tool with `terminate: true` | `registerTool`, terminating tool results |
+| `structured-output.ts` | Schema-specific `structured_output` override using the canonical factory | `createStructuredOutputTool`, `registerTool`, terminating tool results |
 | `truncated-tool.ts` | Output truncation example | `registerTool`, `truncateHead` |
 | `tool-override.ts` | Override built-in read tool | `registerTool` (same name as built-in) |
 | **Commands** |||

@@ -48,6 +48,10 @@ import {
   createLsTool,
   createReadOnlyTools,
   createReadTool,
+  STRUCTURED_OUTPUT_TOOL_NAME,
+  createStructuredOutputCapture,
+  createStructuredOutputTool,
+  getStructuredOutputMetadataPath,
   createWriteTool,
   defaultToolNames,
   withFileMutationQueue,
@@ -77,14 +81,14 @@ export interface CreateAgentSessionOptions {
    *
    * - "all": start with no tools enabled
    * - "builtin": disable the default built-in tools (read, bash, edit, write,
-   *   ask_user_question, todo) but keep extension/custom tools enabled
+   *   ask_user_question, todo, structured_output) but keep extension/custom tools enabled
    */
   noTools?: "all" | "builtin";
   /**
    * Optional allowlist of tool names.
    *
    * When omitted, pi enables the default built-in tools (read, bash, edit, write,
-   * ask_user_question, todo) and leaves extension/custom tools enabled unless
+   * ask_user_question, todo, structured_output) and leaves extension/custom tools enabled unless
    * `noTools` changes that default.
    * When provided, only the listed tool names are enabled, minus any names in
    * `excludedTools`.
@@ -150,11 +154,19 @@ export type {
   BashCommandRule,
   BashCommandSegment,
   BashCommandSegmentSource,
+  JsonObject,
+  JsonPrimitive,
+  JsonValue,
+  StructuredOutputCapture,
+  StructuredOutputCaptureMetadata,
+  StructuredOutputFileCapture,
+  StructuredOutputToolOptions,
   Tool,
 } from "./tools/index.ts";
 
 export {
   withFileMutationQueue,
+  STRUCTURED_OUTPUT_TOOL_NAME,
   // Tool factories (for custom cwd)
   createCodingTools,
   createReadOnlyTools,
@@ -165,6 +177,9 @@ export {
   createGrepTool,
   createFindTool,
   createLsTool,
+  createStructuredOutputCapture,
+  createStructuredOutputTool,
+  getStructuredOutputMetadataPath,
 };
 
 // Helper Functions

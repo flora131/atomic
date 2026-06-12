@@ -803,6 +803,7 @@ export interface RunSyncOptions {
 		schema: JsonSchemaObject;
 		schemaPath: string;
 		outputPath: string;
+		metadataPath: string;
 	};
 	acceptance?: AcceptanceInput;
 	acceptanceContext?: {

@@ -9,7 +9,7 @@ Use a workflow when a task should be repeatable, inspectable, resumable, or spli
 **Key capabilities:**
 - **Tracked stages** - Name each step and inspect it in workflow status and graph views
 - **Parallel branches** - Run independent research, review, or implementation branches concurrently
-- **Context handoffs** - Pass summaries, artifacts, files, and structured outputs between stages
+- **Context handoffs** - Pass summaries, artifacts, files, and `structured_output` results between stages
 - **Human input** - Pause for `ctx.ui.input`, `confirm`, `select`, `editor`, or custom TUI widget decisions during a run
 - **Resumable control** - Interrupt, pause, resume, attach to, or kill workflow runs
 - **Artifacts** - Save large outputs to files instead of pushing everything through model context
@@ -1100,7 +1100,7 @@ Control-signal probing is fail-closed. When the executor inspects an arbitrary t
 - Avoid workflow-specific or stage-specific vocabulary that is not explained inside the current prompt.
 - Use clear software engineering terminology in self-described prompts.
 - Avoid hard-coded regular expressions for condition matching when gating reviews or model outputs.
-- Prefer structured output schemas for review/gate decisions whenever model output needs to be evaluated.
+- Prefer the canonical `structured_output` tool, with a schema-specific factory override when needed, for review/gate decisions whenever model output needs to be evaluated.
 - Treat atomic workflow units as language model stages, not deterministic tools.
 - When deterministic gates are needed, create small dedicated stages that instruct a model to run a specific tool or perform a specific check. This keeps gates adaptive to the current codebase while preserving explicit workflow structure.
 
@@ -1619,7 +1619,7 @@ Stage prompts should be local contracts, not miniature descriptions of the entir
 
 - the stage's current objective and what is out of scope for this stage
 - the exact files, artifacts, child outputs, or user inputs it may use
-- the expected output format or structured-output tool/schema it must return
+- the expected output format or `structured_output` schema it must return
 - the checks, tools, or deterministic commands it should run when relevant
 - the success criteria that let this stage stop
 
@@ -1735,9 +1735,9 @@ Build validation into the workflow instead of waiting for a final manual check. 
 - reviewer stages: fresh-context reviewers that inspect artifacts and current files
 - LLM-as-judge stages: direct scoring, pairwise comparison, or rubric-based grading for subjective outputs
 
-Prefer structured output schemas or structured-output tools for model review and gate decisions. Do not make correctness depend on brittle regular-expression matching against free-form prose such as “looks good”, “approved”, or “PASS”. A schema with explicit booleans/enums, findings arrays, confidence, evidence fields, and error reporting is easier to validate, replay, and safely default to “not approved” when malformed.
+Prefer the canonical `structured_output` tool for model review and gate decisions. It is available to workflow stages by default through the normal Atomic tool registry; when a stage needs a strict contract, pass a schema-specific `createStructuredOutputTool({ schema, capture })` override in `customTools` and prompt the model to call `structured_output` exactly once with the schema fields directly. Structured-output schemas must be top-level object tool-argument schemas, so wrap array or primitive decisions in object fields such as `{ items: [...] }` or `{ value: ... }`. Terminating `structured_output` JSON is preserved inline even when it exceeds the normal oversized-tool-result threshold, so downstream workflow code can consume the final machine-readable payload instead of a `<persisted-output>` pointer. Custom names such as `final_decision` do not suppress the default generic `structured_output`; strict workflow contracts should use a same-name `structured_output` override, an explicit `tools: ["final_decision"]` allowlist, or `excludedTools: ["structured_output"]`. Do not add the old synthetic `{ value: ... }` wrapper around an object payload, and do not make correctness depend on brittle regular-expression matching against free-form prose such as “looks good”, “approved”, or “PASS”. A schema with explicit booleans/enums, findings arrays, confidence, evidence fields, and error reporting is easier to validate, replay, and safely default to “not approved” when malformed.
 
-Use small dedicated model stages for adaptive gates when deterministic code alone cannot decide what to check. For example, a stage can read an artifact, inspect the repo, run a named tool or command, and then emit a structured decision. Keep that stage's prompt narrow: tell it the specific check to perform, the files/tools it may use, and the structured decision it must return.
+Use small dedicated model stages for adaptive gates when deterministic code alone cannot decide what to check. For example, a stage can read an artifact, inspect the repo, run a named tool or command, and then emit a structured decision through `structured_output`. Keep that stage's prompt narrow: tell it the specific check to perform, the files/tools it may use, and the structured decision it must return.
 
 When using LLM judges, mitigate bias by defining score anchors, asking for evidence, calibrating against examples, and keeping length/order effects in mind. Track pass rates and failures over time for reusable workflows.
 
@@ -1794,5 +1794,5 @@ Good workflows are information-flow systems, not just prompt sequences. Keep sta
 - Do not call `kill` when the user asks to interrupt or pause resumably.
 - Keep stage names readable because they appear in workflow status and UI.
 - Do not write stage prompts that depend on hidden workflow-wide awareness; make each model stage locally scoped and self-described.
-- Do not parse model gate decisions from ad-hoc prose with regular expressions; use structured output schemas/tools or a focused checking stage that returns a structured decision.
-- Return compact structured output and save large artifacts to files.
+- Do not parse model gate decisions from ad-hoc prose with regular expressions; use the canonical `structured_output` tool, schema-specific factory overrides, or a focused checking stage that returns a structured decision.
+- Return compact structured output for decisions and save large artifacts to files; `structured_output` preserves large final JSON inline, but artifact handoffs should still use files when the next stage does not need the whole payload in context.

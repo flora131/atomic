@@ -311,7 +311,7 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
         });
     });
 
-    test("interactive stage sessions exclude workflow but keep ask_user_question available", async () => {
+    test("interactive stage sessions exclude workflow but keep ask_user_question and structured_output available", async () => {
         const calls: Array<CreateAgentSessionOptions | undefined> = [];
         const adapters = buildRuntimeAdapters(
             {},
@@ -334,9 +334,10 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
         );
 
         assert.deepEqual(calls[0]?.excludedTools, ["workflow"]);
+        assert.equal(calls[0]?.excludedTools?.includes("structured_output"), false);
     });
 
-    test("non-interactive stage sessions exclude ask_user_question and do not bind UI", async () => {
+    test("non-interactive stage sessions exclude ask_user_question, keep structured_output available, and do not bind UI", async () => {
         const calls: Array<CreateAgentSessionOptions | undefined> = [];
         let bindCalls = 0;
         const session = {
@@ -369,6 +370,7 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
             "workflow",
             "ask_user_question",
         ]);
+        assert.equal(calls[0]?.excludedTools?.includes("structured_output"), false);
         assert.equal(bindCalls, 0);
     });
 

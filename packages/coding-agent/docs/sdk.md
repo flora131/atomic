@@ -622,6 +622,67 @@ Custom tools passed via `customTools` are combined with extension-registered too
 
 If you pass `tools`, include each custom or extension tool name you want enabled, for example `tools: ["read", "bash", "my_tool"]`. Use `excludedTools` to remove a custom or extension tool by name from the final exposed set.
 
+#### Structured output final results
+
+`structured_output` is available as a default builtin for generic top-level JSON object answers. For strict SDK or workflow contracts, override the builtin with the exported factory:
+
+```typescript
+import { Type, type Static } from "typebox";
+import {
+  createAgentSession,
+  createStructuredOutputTool,
+  type StructuredOutputCapture,
+} from "@bastani/atomic";
+
+const DecisionSchema = Type.Object({
+  approved: Type.Boolean(),
+  findings: Type.Array(Type.String()),
+}, { additionalProperties: false });
+
+type Decision = Static<typeof DecisionSchema>;
+const capture: StructuredOutputCapture<Decision> = {
+  called: false,
+  value: undefined,
+};
+
+const structuredOutput = createStructuredOutputTool({
+  schema: DecisionSchema,
+  capture,
+});
+
+const { session } = await createAgentSession({
+  customTools: [structuredOutput],
+});
+```
+
+The tool parameters are exactly `DecisionSchema`: the model calls `structured_output({ approved, findings })`, not `structured_output({ value: { approved, findings } })`. A successful call stores the flat params in `capture.value`, returns them as tool `details`, and sets `terminate: true` so there is no extra follow-up assistant turn. When an `output` file sink is configured, the factory writes the same flat schema-valid params to `output.json` and writes call metadata (`toolName`, `toolCallId`, `success`, `terminate`) to a private `output.meta.json` sidecar for finality-checked parent readback. Structured-output schemas must be top-level object tool-argument schemas; wrap array or primitive final values in object fields such as `{ items: [...] }` or `{ value: ... }`. Structured-output tool definitions opt out of oversized-result persistence, so large final JSON remains inline as the machine-readable result instead of being replaced by a `<persisted-output>` pointer.
+
+Custom tool names are supported, and the prompt metadata follows the configured name. A custom name is additive: registering `final_decision` does **not** suppress the default generic `structured_output` builtin. If the schema-specific contract is mandatory, either override the builtin by using the same name (`structured_output`), isolate the custom name with `tools`, or remove the generic builtin with `excludedTools`:
+
+```typescript
+const finalDecision = createStructuredOutputTool({
+  name: "final_decision",
+  schema: DecisionSchema,
+  capture,
+});
+// The model is prompted to call final_decision exactly once, not structured_output.
+
+await createAgentSession({
+  customTools: [finalDecision],
+  tools: ["final_decision"], // only this tool is enabled
+});
+
+await createAgentSession({
+  customTools: [finalDecision],
+  excludedTools: ["structured_output"], // keep other defaults, remove generic output
+});
+
+await createAgentSession({
+  customTools: [createStructuredOutputTool({ schema: DecisionSchema, capture })],
+  // Same-name custom tool overrides the generic structured_output builtin.
+});
+```
+
 > See [examples/sdk/05-tools.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/examples/sdk/05-tools.ts)
 
 ### Extensions
@@ -1182,6 +1243,9 @@ createEventBus
 
 // Helpers
 defineTool
+STRUCTURED_OUTPUT_TOOL_NAME
+createStructuredOutputTool
+createStructuredOutputCapture
 getAgentDir
 getPackageDir
 getReadmePath
@@ -1203,6 +1267,8 @@ type CreateAgentSessionOptions
 type CreateAgentSessionResult
 type BashCommandPolicy
 type BashCommandRule
+type StructuredOutputCapture
+type StructuredOutputToolOptions
 type ExtensionFactory
 type ExtensionAPI
 type ToolDefinition

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Documented the canonical `structured_output` builtin as the default structured final-answer path for workflow stages and clarified schema-specific gate guidance around `createStructuredOutputTool` flat parameters ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+- Clarified that workflow `structured_output` gate schemas must be top-level object tool-argument schemas, with arrays and primitives wrapped in object fields before being returned through the terminating tool ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+- Documented that terminating workflow-stage `structured_output` JSON stays inline even when large, while artifact-sized handoffs should still be saved to files when downstream stages do not need the full payload in context ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+- Clarified that custom-named workflow structured-output tools do not suppress the default generic `structured_output` builtin, and that strict gate contracts should isolate them with same-name overrides, explicit `tools`, or `excludedTools` ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+
 ### Fixed
 
 - Fixed the workflow graph overlay remaining interactive when the parent/main-chat agent opens `ask_user_question`: the graph keeps focus, the parent question stays pending behind it with a clear “Main chat needs input — exit graph to answer.” status hint, hiding/exiting the graph focuses the pending question, and host custom-UI state changes no longer hide, restore, remount, or repaint the overlay ([#1353](https://github.com/bastani-inc/atomic/issues/1353)).

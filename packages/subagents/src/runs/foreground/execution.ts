@@ -752,7 +752,8 @@ async function runSingleAttempt(
 			schema: options.structuredOutput.schema,
 			schemaPath: options.structuredOutput.schemaPath,
 			outputPath: options.structuredOutput.outputPath,
-		});
+			metadataPath: options.structuredOutput.metadataPath,
+		}, { messages: result.messages ?? [] });
 		result.structuredOutputSchemaPath = options.structuredOutput.schemaPath;
 		result.structuredOutputPath = options.structuredOutput.outputPath;
 		if (structured.error) {

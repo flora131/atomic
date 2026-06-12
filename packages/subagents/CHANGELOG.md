@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Changed `outputSchema` child runs to use Atomic's shared `structured_output` factory with flat schema parameters, preserving parent-side `structuredOutput` capture while removing the old child-facing `{ value: ... }` envelope and auto-allowing the required tool for explicit child tool allowlists ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+- Enforced parent-side fail-fast validation that subagent child `outputSchema` roots are top-level object tool-argument schemas; array or primitive handoff values must now be wrapped in object fields such as `{ items: [...] }` or `{ value: ... }` ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+- Kept dynamic fanout `collect.outputSchema` as a general JSON Schema validator so saved chains and direct runs can validate aggregate arrays with array-root schemas while child `outputSchema` tool contracts remain object-rooted ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+
+### Fixed
+
+- Fixed subagent `outputSchema` readback to accept cross-process captures only when flat `output.json` params validate against the schema and `output.meta.json` sidecar metadata matches the final successful terminating `structured_output` transcript action, rejecting missing metadata, stale captures, sibling tool calls, duplicate structured-output calls, later assistant/custom/tool-result messages, mismatched call IDs/names, and error tool results ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+- Fixed ordinary subagent children without `outputSchema` to use a final successful `structured_output` tool-result JSON text as `finalOutput` and chain handoff text when there is no assistant follow-up, while preserving later assistant-text precedence and ignoring unrelated or error tool results ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+- Fixed explicit empty child `tools: []` allowlists with `outputSchema` to pass only `--tools structured_output`, keeping the restricted child from regaining default tools while still enabling the required final-answer channel ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+
 ## [0.8.28] - 2026-06-11
 
 ### Changed

@@ -752,7 +752,8 @@ async function runSingleStep(
 				schema: effectiveStructuredOutput.schema,
 				schemaPath: effectiveStructuredOutput.schemaPath,
 				outputPath: effectiveStructuredOutput.outputPath,
-			});
+				metadataPath: effectiveStructuredOutput.metadataPath,
+			}, { messages: run.messages });
 			if (structured.error) structuredError = structured.error;
 			else structuredOutput = structured.value;
 		}

@@ -37,6 +37,7 @@ export const SUBAGENT_PARENT_CAPABILITY_TOKEN_ENV = `${ENV_PREFIX}_SUBAGENT_PARE
 export const SUBAGENT_INHERIT_PROJECT_CONTEXT_ENV = `${ENV_PREFIX}_SUBAGENT_INHERIT_PROJECT_CONTEXT`;
 export const SUBAGENT_INHERIT_SKILLS_ENV = `${ENV_PREFIX}_SUBAGENT_INHERIT_SKILLS`;
 export const SUBAGENT_INTERCOM_SESSION_NAME_ENV = `${ENV_PREFIX}_SUBAGENT_INTERCOM_SESSION_NAME`;
+const STRUCTURED_OUTPUT_TOOL_NAME = "structured_output";
 
 interface BuildPiArgsInput {
 	baseArgs: string[];
@@ -74,6 +75,7 @@ interface BuildPiArgsInput {
 		schema: JsonSchemaObject;
 		schemaPath: string;
 		outputPath: string;
+		metadataPath: string;
 	};
 }
 
@@ -128,8 +130,13 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 	const declaredBuiltinTools = input.tools?.filter((tool) => !(tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js"))) ?? [];
 	const fanoutAuthorized = declaredBuiltinTools.includes("subagent");
 	const toolExtensionPaths: string[] = [];
-	if (input.tools?.length) {
+	if (input.tools !== undefined) {
 		const builtinTools = [...declaredBuiltinTools];
+		const shouldAutoAllowStructuredOutput = input.structuredOutput
+			&& (declaredBuiltinTools.length > 0 || input.tools.length === 0);
+		if (shouldAutoAllowStructuredOutput && !builtinTools.includes(STRUCTURED_OUTPUT_TOOL_NAME)) {
+			builtinTools.push(STRUCTURED_OUTPUT_TOOL_NAME);
+		}
 		for (const tool of input.tools) {
 			if (!declaredBuiltinTools.includes(tool) && (tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js"))) {
 				toolExtensionPaths.push(tool);
@@ -137,7 +144,11 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 		}
 		if (builtinTools.length > 0) {
 			if (input.mcpDirectTools?.length) {
-				builtinTools.push(...resolveMcpDirectToolNames(input.mcpDirectTools, input.cwd));
+				for (const resolvedTool of resolveMcpDirectToolNames(input.mcpDirectTools, input.cwd)) {
+					if (!builtinTools.includes(resolvedTool)) {
+						builtinTools.push(resolvedTool);
+					}
+				}
 			}
 			args.push("--tools", builtinTools.join(","));
 		}

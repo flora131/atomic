@@ -1,4 +1,4 @@
-import { createCursorExperimentalProtocolError, type JsonObject, type JsonValue } from "../config.js";
+import { createCursorExperimentalProtocolError, parseJsonObject, parseJsonValue, type JsonObject, type JsonValue } from "../config.js";
 import type { CursorUsableModel } from "../model-mapper.js";
 import type { CursorConnectFrame, CursorDoneReason, CursorProtocolCodec, CursorRunRequest, CursorServerMessage, CursorToolResultMessage } from "../transport.js";
 
@@ -11,6 +11,9 @@ type WireField = { readonly fieldNumber: number; readonly wireType: number; read
 const WIRE_VARINT = 0;
 const WIRE_FIXED64 = 1;
 const WIRE_LENGTH_DELIMITED = 2;
+const WIRE_START_GROUP = 3;
+const WIRE_END_GROUP = 4;
+const WIRE_FIXED32 = 5;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const strictTextDecoder = new TextDecoder("utf-8", { fatal: true });
@@ -276,6 +279,19 @@ function decodeListValue(data: Uint8Array): JsonValue[] {
 	return values;
 }
 
+function encodeProtobufValue(value: JsonValue): Uint8Array {
+	if (value === null) return encodeVarintField(1, 0n);
+	if (typeof value === "number") return encodeDoubleField(2, value);
+	if (typeof value === "string") return encodeStringField(3, value);
+	if (typeof value === "boolean") return encodeVarintField(4, value ? 1n : 0n);
+	if (Array.isArray(value)) return encodeMessageField(6, concatBytes(...value.map((item) => encodeMessageField(1, encodeProtobufValue(item)))));
+	return encodeMessageField(5, concatBytes(...Object.entries(value).map(([key, item]) => encodeMessageField(1, concatBytes(encodeStringField(1, key), encodeMessageField(2, encodeProtobufValue(item)))))));
+}
+
+function serializableJsonValue(value: object): JsonValue {
+	return parseJsonValue(JSON.stringify(value)) ?? {};
+}
+
 function encodeUserMessageAction(text: string, requestId: string): Uint8Array {
 	// AgentRunRequest.action = 2 -> ConversationAction.user_message_action = 1 -> UserMessageAction.user_message = 1 -> UserMessage { text = 1, message_id = 2 }
 	return encodeMessageField(1, encodeMessageField(1, encodeUserMessage(text, `${requestId}-user`)));
@@ -285,8 +301,18 @@ function encodeUserMessage(text: string, messageId: string): Uint8Array {
 	return concatBytes(encodeStringField(1, text), encodeStringField(2, messageId));
 }
 
-function encodeMcpArgs(id: string, name: string, toolName: string, argsJson: string): Uint8Array {
-	return concatBytes(encodeStringField(1, name), encodeMessageField(2, concatBytes(encodeStringField(1, "arguments"), encodeMessageField(2, textEncoder.encode(argsJson)))), encodeStringField(3, id), encodeStringField(4, "atomic"), encodeStringField(5, toolName));
+function encodeMcpArgs(id: string, name: string, toolName: string, args: JsonObject): Uint8Array {
+	return concatBytes(
+		encodeStringField(1, name),
+		...Object.entries(args).map(([key, value]) => encodeMessageField(2, encodeMcpArgEntry(key, value))),
+		encodeStringField(3, id),
+		encodeStringField(4, "atomic"),
+		encodeStringField(5, toolName),
+	);
+}
+
+function encodeMcpArgEntry(key: string, value: JsonValue): Uint8Array {
+	return concatBytes(encodeStringField(1, key), encodeMessageField(2, encodeProtobufValue(value)));
 }
 
 function encodeMcpSuccessResult(text: string, isError: boolean): Uint8Array {
@@ -309,7 +335,7 @@ function encodeConversationState(request: CursorRunRequest): Uint8Array {
 		readonly kind: "tool";
 		readonly id: string;
 		readonly name: string;
-		readonly argsJson: string;
+		readonly args: JsonObject;
 		result?: { readonly text: string; readonly isError: boolean };
 	}
 	type HistoricalStep = Uint8Array | HistoricalToolStep;
@@ -342,7 +368,7 @@ function encodeConversationState(request: CursorRunRequest): Uint8Array {
 				else if (part.type === "thinking") steps.push(encodeMessageField(3, encodeStringField(1, part.thinking)));
 				else {
 					if (pendingToolSteps.has(part.id)) throw new Error(`Duplicate historical Cursor tool call id ${part.id}.`);
-					const toolStep: HistoricalToolStep = { kind: "tool", id: part.id, name: part.name, argsJson: JSON.stringify(part.arguments) };
+					const toolStep: HistoricalToolStep = { kind: "tool", id: part.id, name: part.name, args: parseJsonObject(JSON.stringify(part.arguments)) ?? {} };
 					pendingToolSteps.set(part.id, toolStep);
 					steps.push(toolStep);
 				}
@@ -359,9 +385,9 @@ function encodeConversationState(request: CursorRunRequest): Uint8Array {
 	return fields.length === 0 ? new Uint8Array() : encodeMessageField(1, concatBytes(...fields));
 }
 
-function encodeMcpToolHistoryStep(step: { readonly id: string; readonly name: string; readonly argsJson: string; readonly result?: { readonly text: string; readonly isError: boolean } }): Uint8Array {
+function encodeMcpToolHistoryStep(step: { readonly id: string; readonly name: string; readonly args: JsonObject; readonly result?: { readonly text: string; readonly isError: boolean } }): Uint8Array {
 	const toolCall = concatBytes(
-		encodeMessageField(1, encodeMcpArgs(step.id, step.name, step.name, step.argsJson)),
+		encodeMessageField(1, encodeMcpArgs(step.id, step.name, step.name, step.args)),
 		step.result ? encodeMessageField(2, encodeMcpSuccessResult(step.result.text, step.result.isError)) : new Uint8Array(),
 	);
 	return encodeMessageField(2, encodeMessageField(15, toolCall));
@@ -373,7 +399,7 @@ function encodeMcpTools(request: CursorRunRequest): Uint8Array {
 	const definitions = tools.map((tool) => encodeMessageField(1, concatBytes(
 		encodeStringField(1, tool.name),
 		encodeStringField(2, tool.description),
-		encodeMessageField(3, textEncoder.encode(JSON.stringify(tool.parameters))),
+		encodeMessageField(3, encodeProtobufValue(serializableJsonValue(tool.parameters))),
 		encodeStringField(4, "atomic"),
 		encodeStringField(5, tool.name),
 	)));
@@ -434,11 +460,57 @@ function readFields(data: Uint8Array): readonly WireField[] {
 			if (end > data.length) throw new Error("truncated length-delimited field");
 			fields.push({ fieldNumber, wireType, value: data.slice(offset, end) });
 			offset = end;
+		} else if (wireType === WIRE_START_GROUP) {
+			offset = skipGroup(data, offset, fieldNumber);
+		} else if (wireType === WIRE_END_GROUP) {
+			throw new Error("unexpected protobuf end-group tag");
+		} else if (wireType === WIRE_FIXED32) {
+			const end = offset + 4;
+			if (end > data.length) throw new Error("truncated fixed32 field");
+			offset = end;
 		} else {
 			throw new Error(`unsupported wire type ${wireType}`);
 		}
 	}
 	return fields;
+}
+
+function skipGroup(data: Uint8Array, startOffset: number, groupFieldNumber: number): number {
+	let offset = startOffset;
+	while (offset < data.length) {
+		const tag = readVarint(data, offset);
+		offset = tag.offset;
+		const fieldNumber = Number(tag.value >> 3n);
+		const wireType = Number(tag.value & 0x7n);
+		if (wireType === WIRE_END_GROUP) {
+			if (fieldNumber !== groupFieldNumber) throw new Error("mismatched protobuf end-group tag");
+			return offset;
+		}
+		offset = skipUnknownFieldValue(data, offset, wireType, fieldNumber);
+	}
+	throw new Error("unterminated protobuf group");
+}
+
+function skipUnknownFieldValue(data: Uint8Array, startOffset: number, wireType: number, fieldNumber: number): number {
+	if (wireType === WIRE_VARINT) return readVarint(data, startOffset).offset;
+	if (wireType === WIRE_FIXED64) {
+		const end = startOffset + 8;
+		if (end > data.length) throw new Error("truncated fixed64 field");
+		return end;
+	}
+	if (wireType === WIRE_LENGTH_DELIMITED) {
+		const length = readVarint(data, startOffset);
+		const end = length.offset + Number(length.value);
+		if (end > data.length) throw new Error("truncated length-delimited field");
+		return end;
+	}
+	if (wireType === WIRE_START_GROUP) return skipGroup(data, startOffset, fieldNumber);
+	if (wireType === WIRE_FIXED32) {
+		const end = startOffset + 4;
+		if (end > data.length) throw new Error("truncated fixed32 field");
+		return end;
+	}
+	throw new Error(`unsupported wire type ${wireType}`);
 }
 
 function readVarint(data: Uint8Array, startOffset: number): { readonly value: bigint; readonly offset: number } {
@@ -469,6 +541,12 @@ function encodeLengthDelimitedField(fieldNumber: number, value: Uint8Array): Uin
 
 function encodeVarintField(fieldNumber: number, value: bigint): Uint8Array {
 	return concatBytes(encodeVarint(BigInt((fieldNumber << 3) | WIRE_VARINT)), encodeVarint(value));
+}
+
+function encodeDoubleField(fieldNumber: number, value: number): Uint8Array {
+	const bytes = new Uint8Array(8);
+	new DataView(bytes.buffer).setFloat64(0, value, true);
+	return concatBytes(encodeVarint(BigInt((fieldNumber << 3) | WIRE_FIXED64)), bytes);
 }
 
 function encodeVarint(value: bigint): Uint8Array {

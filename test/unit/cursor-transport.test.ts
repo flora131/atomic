@@ -214,8 +214,16 @@ describe("Cursor HTTP2 transport boundary", () => {
 			.find((value): value is Uint8Array => value instanceof Uint8Array && cursorProtoTest.decodeString(value).includes("tool result text"));
 		assert.ok(toolStep instanceof Uint8Array);
 		const toolFields = cursorProtoTest.readFields(toolStep);
-		assert.ok(toolFields.some((field) => field.fieldNumber === 1));
+		const historicalMcpArgs = toolFields.find((field) => field.fieldNumber === 1)?.value;
+		assert.ok(historicalMcpArgs instanceof Uint8Array);
 		assert.ok(toolFields.some((field) => field.fieldNumber === 2));
+		const historicalArgEntries = cursorProtoTest.readFields(historicalMcpArgs).filter((field) => field.fieldNumber === 2);
+		assert.equal(historicalArgEntries.length, 1);
+		const pathEntry = historicalArgEntries[0]?.value;
+		assert.ok(pathEntry instanceof Uint8Array);
+		const pathEntryFields = cursorProtoTest.readFields(pathEntry);
+		assert.equal(cursorProtoTest.decodeString(pathEntryFields.find((field) => field.fieldNumber === 1)?.value as Uint8Array), "path");
+		assert.equal(cursorProtoTest.decodeValue(pathEntryFields.find((field) => field.fieldNumber === 2)?.value as Uint8Array), "README.md");
 		const textDelta = cursorProtoTest.encodeMessageField(1, cursorProtoTest.encodeStringField(1, "hello"));
 		const interactionUpdate = cursorProtoTest.encodeMessageField(1, textDelta);
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: interactionUpdate, endStream: false }), [{ type: "textDelta", text: "hello" }]);
@@ -285,7 +293,7 @@ describe("Cursor HTTP2 transport boundary", () => {
 		const definitionFields = new Map(cursorProtoTest.readFields(firstDefinition).map((field) => [field.fieldNumber, field.value]));
 		assert.equal(cursorProtoTest.decodeString(definitionFields.get(1) as Uint8Array), "Read");
 		assert.equal(cursorProtoTest.decodeString(definitionFields.get(2) as Uint8Array), "Read a file");
-		assert.deepEqual(JSON.parse(cursorProtoTest.decodeString(definitionFields.get(3) as Uint8Array)), { type: "object", properties: { path: { type: "string" } } });
+		assert.deepEqual(cursorProtoTest.decodeValue(definitionFields.get(3) as Uint8Array), { type: "object", properties: { path: { type: "string" } } });
 		assert.equal(cursorProtoTest.decodeString(definitionFields.get(4) as Uint8Array), "atomic");
 		assert.equal(cursorProtoTest.decodeString(definitionFields.get(5) as Uint8Array), "Read");
 	});
@@ -304,6 +312,15 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.ok(result instanceof Uint8Array);
 		assert.equal(new TextDecoder().decode(encoded).includes("toolResult:tool-1"), false);
 		assert.equal(new TextDecoder().decode(encoded).includes("file contents"), true);
+	});
+
+	test("protobuf codec skips unknown fixed32 fields while decoding known messages", () => {
+		const codec = new CursorProtobufProtocolCodec();
+		const textDelta = cursorProtoTest.encodeMessageField(1, cursorProtoTest.encodeStringField(1, "hello"));
+		const interactionUpdate = cursorProtoTest.encodeMessageField(1, textDelta);
+		const frame = cursorProtoTest.concatBytes(cursorProtoTest.encodeFixed32Field(99, 123), interactionUpdate);
+
+		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: frame, endStream: false }), [{ type: "textDelta", text: "hello" }]);
 	});
 
 	test("protobuf codec decodes checkpoint token details without treating max tokens as output", () => {

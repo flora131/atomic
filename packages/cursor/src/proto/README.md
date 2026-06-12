@@ -21,14 +21,14 @@ Field provenance (from `ndraiman/pi-cursor-provider` vendored `proto/agent_pb.ts
 - `AgentClientMessage.conversation_action = 4`
 - `AgentRunRequest.conversation_state = 1`, `action = 2`, `model_details = 3`, `mcp_tools = 4`, `conversation_id = 5`, `custom_system_prompt = 8`; `conversation_id` is the stable Atomic session/conversation id when available, while request ids remain per-call tracing/message-id seeds.
 - `AgentRunRequest.mcp_tools = 4` contains a `McpTools` wrapper, not direct tool definitions; `McpTools.mcp_tools = 1` repeats `McpToolDefinition` messages.
-- `McpToolDefinition.name = 1`, `description = 2`, `input_schema = 3` (UTF-8 JSON schema bytes), `provider_identifier = 4`, `tool_name = 5`
+- `McpToolDefinition.name = 1`, `description = 2`, `input_schema = 3` (JSON schema encoded as `google.protobuf.Value` bytes), `provider_identifier = 4`, `tool_name = 5`
 - `ConversationStateStructure.root_prompt_messages_json = 1`, `turns = 8`
 - `ConversationAction.user_message_action = 1`, `cancel_action = 3`
 - `UserMessageAction.user_message = 1`; `UserMessage.text = 1`, `message_id = 2`
 - `ModelDetails.model_id = 1`, `thinking_details = 2`, `display_name = 4`, `max_mode = 7`
 - `AgentServerMessage.interaction_update = 1`, `exec_server_message = 2`, `conversation_checkpoint_update = 3`
 - `InteractionUpdate.text_delta = 1`, `thinking_delta = 4`, `token_delta = 8`, `turn_ended = 14`
-- `ExecServerMessage.exec_id = 15`, `mcp_args = 11`; `McpArgs.name = 1`, `args = 2`, `tool_call_id = 3`, `provider_identifier = 4`, `tool_name = 5`. `McpArgs.args` values are `bytes`; Atomic first decodes them as protobuf `Value` payloads and then falls back to strict raw UTF-8 strings so Cursor string arguments such as file paths do not fail the tool-call boundary. This remains an inferred private-wire-format boundary: a raw string whose bytes exactly match a structurally valid protobuf `Value` could still be interpreted as typed data, so revalidate this behavior when updating the protocol.
+- `ExecServerMessage.exec_id = 15`, `mcp_args = 11`; `McpArgs.name = 1`, `args = 2`, `tool_call_id = 3`, `provider_identifier = 4`, `tool_name = 5`. `McpArgs.args` values are `bytes`; Atomic first decodes them as protobuf `Value` payloads and then falls back to strict raw UTF-8 strings so Cursor string arguments such as file paths do not fail the tool-call boundary. Historical tool-call arguments sent back to Cursor are encoded as per-argument protobuf `Value` map entries. This remains an inferred private-wire-format boundary: a raw string whose bytes exactly match a structurally valid protobuf `Value` could still be interpreted as typed data, so revalidate this behavior when updating the protocol.
 - `ExecClientMessage.id = 1`, `mcp_result = 11`, `exec_id = 15`; Atomic writes these frames back to the same paused Run stream for active tool results rather than encoding tool results as user-message text. Historical completed tool calls are reconstructed as one MCP tool-call step containing both `mcp_args` and `mcp_result`, so tool results are not sent as prefixed transcript text.
 
 Paused Cursor tool streams are owned by the conversation-state store while Atomic executes tools. The store installs abort cleanup and an unref'd idle timer so one-shot CLI/workflow runs can exit and abandoned tool turns are cancelled.

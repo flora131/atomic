@@ -255,8 +255,9 @@ export class Http2CursorAgentTransport implements CursorAgentTransport {
 				"Cursor model discovery timed out.",
 			);
 			assertSuccessfulStatus(response.statusCode, response.body, [accessToken]);
-			const body = unwrapUnaryBody(response.body);
-			return this.#codec.decodeGetUsableModelsResponse(body);
+			// GetUsableModels uses application/proto unary bodies, not Connect
+			// stream envelopes; pass the raw protobuf response to the codec.
+			return this.#codec.decodeGetUsableModelsResponse(response.body);
 		} catch (error) {
 			throw sanitizeCursorTransportError(toError(error), [accessToken]);
 		}
@@ -452,6 +453,9 @@ class NodeHttp2CursorClient implements CursorHttp2Client {
 	}
 
 	private openSession(baseUrl: string): ClientHttp2Session {
+		// Cursor's private API is experimental and streams must clean up
+		// predictably in one-shot CLI/workflow runs, so each request owns its
+		// session for now. Pooling can be added once protocol stability is known.
 		const session = connect(baseUrl);
 		this.#sessions.add(session);
 		session.on("close", () => this.#sessions.delete(session));
@@ -618,16 +622,6 @@ const textDecoder = new TextDecoder();
 export function sanitizeCursorTransportError(error: Error, secrets: readonly string[] = []): Error {
 	const message = sanitizeDiagnosticText(error.message, secrets);
 	return error instanceof CursorTransportError ? new CursorTransportError(error.code, message) : new CursorTransportError("ProtocolError", message);
-}
-
-function unwrapUnaryBody(data: Uint8Array): Uint8Array {
-	try {
-		const frames = decodeCursorConnectFrames(data);
-		const firstMessage = frames.find((frame) => !frame.endStream);
-		return firstMessage?.data ?? data;
-	} catch {
-		return data;
-	}
 }
 
 function throwIfCursorEndStreamError(data: Uint8Array, secrets: readonly string[]): void {

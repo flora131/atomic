@@ -201,6 +201,31 @@ describe("CursorStreamAdapter", () => {
 		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 0, closedStreams: 1 });
 	});
 
+	test("cancels a paused Cursor tool stream when the original request aborts", async () => {
+		const transport = new CursorMockTransport({ messages: [{ type: "toolCall", id: "tool-abort", name: "Read", argumentsJson: "{\"path\":\"README.md\"}" }] });
+		const adapter = new CursorStreamAdapter({ transport, uuid: () => "run-paused-abort" });
+		const controller = new AbortController();
+		const events = await collectEvents(adapter.streamSimple(model(), context(), { apiKey: "access-secret", sessionId: "session-abort", signal: controller.signal }));
+		assert.equal(events.at(-1)?.type, "done");
+		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 1, cancelledStreams: 0, closedStreams: 0 });
+
+		controller.abort();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		assert.deepEqual(adapter.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 1, closedStreams: 1, activeTurns: 0 });
+	});
+
+	test("cancels a paused Cursor tool stream after the idle timeout", async () => {
+		const transport = new CursorMockTransport({ messages: [{ type: "toolCall", id: "tool-timeout", name: "Read", argumentsJson: "{\"path\":\"README.md\"}" }] });
+		const adapter = new CursorStreamAdapter({ transport, uuid: () => "run-paused-timeout", pausedTurnIdleTimeoutMs: 1 });
+		const events = await collectEvents(adapter.streamSimple(model(), context(), { apiKey: "access-secret", sessionId: "session-timeout" }));
+		assert.equal(events.at(-1)?.type, "done");
+
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		assert.deepEqual(adapter.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 1, closedStreams: 1, activeTurns: 0 });
+	});
+
 	test("rejects unmatched trailing tool results without starting a new Cursor run", async () => {
 		const transport = new CursorMockTransport({ messages: [{ type: "done", reason: "stop" }] });
 		const adapter = new CursorStreamAdapter({ transport, uuid: () => "request-orphan" });

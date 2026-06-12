@@ -122,6 +122,35 @@ describe("CursorAuthService", () => {
 		);
 	});
 
+	test("redacts PKCE verifier, uuid, and poll URL from repeated poll rejection errors", async () => {
+		const expectedPkce = createPkcePair(deterministicRandom);
+		let echoedPollUrl = "";
+		const service = new CursorAuthService({
+			fetch: async (url) => {
+				echoedPollUrl = url;
+				return new Response(`rejected verifier=${expectedPkce.verifier} uuid=uuid-redact url=${url}`, { status: 500 });
+			},
+			randomBytes: deterministicRandom,
+			uuid: () => "uuid-redact",
+			sleep: async () => {},
+			maxPollAttempts: 3,
+			initialPollDelayMs: 1,
+		});
+
+		await assert.rejects(
+			service.login(loginCallbacks([])),
+			(error) => {
+				assert.ok(error instanceof CursorAuthError);
+				assert.equal(error.code, "PollRejected");
+				assert.doesNotMatch(error.message, new RegExp(expectedPkce.verifier, "u"));
+				assert.doesNotMatch(error.message, /uuid-redact/u);
+				assert.ok(echoedPollUrl.length > 0);
+				assert.doesNotMatch(error.message, new RegExp(echoedPollUrl.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+				return true;
+			},
+		);
+	});
+
 	test("derives a safe fallback expiry for non-JWT tokens", () => {
 		assert.equal(deriveCursorTokenExpiry("not-a-jwt", () => 10), 10 + 60 * 60 * 1000);
 	});

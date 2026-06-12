@@ -28,7 +28,9 @@ Field provenance (from `ndraiman/pi-cursor-provider` vendored `proto/agent_pb.ts
 - `ModelDetails.model_id = 1`, `thinking_details = 2`, `display_name = 4`, `max_mode = 7`
 - `AgentServerMessage.interaction_update = 1`, `exec_server_message = 2`, `conversation_checkpoint_update = 3`
 - `InteractionUpdate.text_delta = 1`, `thinking_delta = 4`, `token_delta = 8`, `turn_ended = 14`
-- `ExecServerMessage.exec_id = 15`, `mcp_args = 11`; `McpArgs.name = 1`, `args = 2`, `tool_call_id = 3`, `provider_identifier = 4`, `tool_name = 5`
-- `ExecClientMessage.id = 1`, `mcp_result = 11`, `exec_id = 15`; Atomic writes these frames back to the same paused Run stream for tool results rather than encoding tool results as user-message text.
+- `ExecServerMessage.exec_id = 15`, `mcp_args = 11`; `McpArgs.name = 1`, `args = 2`, `tool_call_id = 3`, `provider_identifier = 4`, `tool_name = 5`. `McpArgs.args` values are `bytes`; Atomic first decodes them as protobuf `Value` payloads and then falls back to strict raw UTF-8/JSON so Cursor string arguments such as file paths do not fail the tool-call boundary.
+- `ExecClientMessage.id = 1`, `mcp_result = 11`, `exec_id = 15`; Atomic writes these frames back to the same paused Run stream for active tool results rather than encoding tool results as user-message text. Historical completed tool calls are reconstructed as one MCP tool-call step containing both `mcp_args` and `mcp_result`, so tool results are not sent as prefixed transcript text.
+
+Paused Cursor tool streams are owned by the conversation-state store while Atomic executes tools. The store installs abort cleanup and an unref'd idle timer so one-shot CLI/workflow runs can exit and abandoned tool turns are cancelled.
 
 If Cursor changes the private protocol, add or generate updated protobuf message definitions here and keep generated code isolated from provider registration/stream mapping. Do not introduce a localhost OpenAI-compatible proxy or child-process bridge.

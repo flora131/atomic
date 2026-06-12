@@ -195,9 +195,52 @@ describe("Cursor HTTP2 transport boundary", () => {
 		for (const expected of ["system prompt", "first question", "first answer", "tool-1", "README.md", "tool result text", "hello cursor", "Read a file"]) {
 			assert.ok(decodedRunText.includes(expected), `encoded run omitted ${expected}`);
 		}
+		assert.equal(decodedRunText.includes("toolResult:tool-1"), false);
+		const runRequest = __cursorProtoTest.readFields(encodedRun)[0]?.value;
+		assert.ok(runRequest instanceof Uint8Array);
+		const conversationState = __cursorProtoTest.readFields(runRequest).find((field) => field.fieldNumber === 1)?.value;
+		assert.ok(conversationState instanceof Uint8Array);
+		const turnWrapper = __cursorProtoTest.readFields(conversationState).find((field) => field.fieldNumber === 8)?.value;
+		assert.ok(turnWrapper instanceof Uint8Array);
+		const agentTurn = __cursorProtoTest.readFields(turnWrapper).find((field) => field.fieldNumber === 1)?.value;
+		assert.ok(agentTurn instanceof Uint8Array);
+		const toolStep = __cursorProtoTest.readFields(agentTurn)
+			.filter((field) => field.fieldNumber === 2)
+			.map((field) => field.value)
+			.filter((value): value is Uint8Array => value instanceof Uint8Array)
+			.map((value) => __cursorProtoTest.readFields(value).find((field) => field.fieldNumber === 2)?.value)
+			.filter((value): value is Uint8Array => value instanceof Uint8Array)
+			.map((value) => __cursorProtoTest.readFields(value).find((field) => field.fieldNumber === 15)?.value)
+			.find((value): value is Uint8Array => value instanceof Uint8Array && __cursorProtoTest.decodeString(value).includes("tool result text"));
+		assert.ok(toolStep instanceof Uint8Array);
+		const toolFields = __cursorProtoTest.readFields(toolStep);
+		assert.ok(toolFields.some((field) => field.fieldNumber === 1));
+		assert.ok(toolFields.some((field) => field.fieldNumber === 2));
 		const textDelta = __cursorProtoTest.encodeMessageField(1, __cursorProtoTest.encodeStringField(1, "hello"));
 		const interactionUpdate = __cursorProtoTest.encodeMessageField(1, textDelta);
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: interactionUpdate, endStream: false }), [{ type: "textDelta", text: "hello" }]);
+	});
+
+	test("protobuf codec rejects orphan and duplicate historical tool results", () => {
+		const codec = new CursorProtobufProtocolCodec();
+		const orphanContext: Context = {
+			messages: [
+				{ role: "user", content: "first", timestamp: 1 },
+				{ role: "toolResult", toolCallId: "missing", toolName: "Read", content: [{ type: "text", text: "orphan" }], isError: false, timestamp: 2 },
+				{ role: "user", content: "next", timestamp: 3 },
+			],
+		};
+		assert.throws(() => codec.encodeRunRequest({ accessToken: "secret", requestId: "run-orphan", model, resolvedModelId: "composer-2", context: orphanContext }), /Orphan historical Cursor tool result/u);
+		const duplicateContext: Context = {
+			messages: [
+				{ role: "user", content: "first", timestamp: 1 },
+				{ role: "assistant", content: [{ type: "toolCall", id: "tool-dup", name: "Read", arguments: { path: "README.md" } }], api: "cursor-agent", provider: "cursor", model: "composer-2", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 },
+				{ role: "toolResult", toolCallId: "tool-dup", toolName: "Read", content: [{ type: "text", text: "first result" }], isError: false, timestamp: 3 },
+				{ role: "toolResult", toolCallId: "tool-dup", toolName: "Read", content: [{ type: "text", text: "second result" }], isError: false, timestamp: 4 },
+				{ role: "user", content: "next", timestamp: 5 },
+			],
+		};
+		assert.throws(() => codec.encodeRunRequest({ accessToken: "secret", requestId: "run-duplicate", model, resolvedModelId: "composer-2", context: duplicateContext }), /Orphan historical Cursor tool result/u);
 	});
 
 	test("protobuf codec uses stable conversation ids separately from request ids", () => {
@@ -284,6 +327,8 @@ describe("Cursor HTTP2 transport boundary", () => {
 			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("nothing", valueNull())),
 			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("nested", valueStruct([["key", valueString("value")]]))),
 			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("items", valueList([valueString("a"), valueNumber(2)]))),
+			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("path", new TextEncoder().encode("README.md"))),
+			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("options", new TextEncoder().encode("{\"limit\":3}"))),
 			__cursorProtoTest.encodeStringField(5, "search"),
 		);
 		const execServer = __cursorProtoTest.concatBytes(
@@ -298,8 +343,20 @@ describe("Cursor HTTP2 transport boundary", () => {
 			name: "search",
 			execId: "exec-99",
 			execNumericId: 99,
-			argumentsJson: JSON.stringify({ query: "hello", count: 42.5, enabled: true, nothing: null, nested: { key: "value" }, items: ["a", 2] }),
+			argumentsJson: JSON.stringify({ query: "hello", count: 42.5, enabled: true, nothing: null, nested: { key: "value" }, items: ["a", 2], path: "README.md", options: { limit: 3 } }),
 		}]);
+	});
+
+	test("protobuf codec rejects invalid raw MCP argument bytes", () => {
+		const codec = new CursorProtobufProtocolCodec();
+		const mcpArgs = __cursorProtoTest.concatBytes(
+			__cursorProtoTest.encodeStringField(1, "search"),
+			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("bad", new Uint8Array([0xff]))),
+			__cursorProtoTest.encodeStringField(5, "search"),
+		);
+		const execServer = __cursorProtoTest.encodeMessageField(11, mcpArgs);
+		const agentMessage = __cursorProtoTest.encodeMessageField(2, execServer);
+		assert.throws(() => codec.decodeRunFrame({ flags: 0, data: agentMessage, endStream: false }), /neither protobuf Value nor valid UTF-8/u);
 	});
 
 	test("protobuf codec rejects unsupported exec server messages", () => {

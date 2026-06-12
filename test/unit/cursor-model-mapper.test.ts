@@ -25,8 +25,8 @@ describe("Cursor model mapper", () => {
 		};
 
 		const models = mapCursorCatalogToProviderModels(catalog);
-		assert.equal(models.length, 1);
-		const composer = models[0];
+		assert.equal(models.length, 2);
+		const composer = models.find((entry) => entry.id === "composer-2");
 		assert.equal(composer?.id, "composer-2");
 		assert.equal(composer?.name, "Composer 2");
 		assert.equal(composer?.reasoning, true);
@@ -40,6 +40,7 @@ describe("Cursor model mapper", () => {
 			high: "composer-2-high",
 			xhigh: "composer-2-max",
 		});
+		assert.equal(models.find((entry) => entry.id === "composer-2-thinking-fast")?.reasoning, true);
 	});
 
 	test("marks static fallback catalog as estimated and keeps cursor/composer-2 available", () => {
@@ -90,6 +91,39 @@ describe("Cursor model mapper", () => {
 		const models = mapCursorCatalogToProviderModels(catalog);
 		assert.equal(models.find((model) => model.id.startsWith("alpha"))?.id, "alpha-none");
 		assert.equal(models.find((model) => model.id.startsWith("beta"))?.id, "beta-default");
+	});
+
+	test("keeps ambiguous max suffixes as standalone model names without sibling evidence", () => {
+		const catalog: CursorModelCatalog = {
+			source: "live",
+			fetchedAt: 1,
+			models: [{ id: "gpt-5.1-codex-max", displayName: "GPT-5.1 Codex Max" }],
+		};
+
+		const models = mapCursorCatalogToProviderModels(catalog);
+		assert.deepEqual(models.map((entry) => entry.id), ["gpt-5.1-codex-max"]);
+		assert.equal(models[0]?.thinkingLevelMap?.high, undefined);
+	});
+
+	test("keeps fast and thinking modes in separate live model groups", () => {
+		const catalog: CursorModelCatalog = {
+			source: "live",
+			fetchedAt: 1,
+			models: [
+				{ id: "gpt-5.4", displayName: "GPT-5.4" },
+				{ id: "gpt-5.4-high", displayName: "GPT-5.4 High" },
+				{ id: "gpt-5.4-fast", displayName: "GPT-5.4 Fast" },
+				{ id: "gpt-5.4-high-fast", displayName: "GPT-5.4 High Fast" },
+				{ id: "gpt-5.4-thinking", displayName: "GPT-5.4 Thinking", supportsThinking: true },
+			],
+		};
+
+		const models = mapCursorCatalogToProviderModels(catalog);
+		assert.deepEqual(models.map((entry) => entry.id), ["gpt-5.4", "gpt-5.4-fast", "gpt-5.4-thinking"]);
+		const normal = models.find((entry) => entry.id === "gpt-5.4");
+		const fast = models.find((entry) => entry.id === "gpt-5.4-fast");
+		assert.equal(resolveCursorModelVariant(normal!.id, normal!.thinkingLevelMap, "high"), "gpt-5.4-high");
+		assert.equal(resolveCursorModelVariant(fast!.id, fast!.thinkingLevelMap, "high"), "gpt-5.4-high-fast");
 	});
 
 	test("uses advertised live fast/thinking ids instead of synthesizing absent base ids", () => {

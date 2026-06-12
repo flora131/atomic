@@ -137,7 +137,7 @@ function replaceEffortBeforeCursorSuffix(modelId: string, effort: CursorEffort):
 	return `${variant.baseId}-${effort}${variant.thinking ? "-thinking" : ""}${variant.fast ? "-fast" : ""}`;
 }
 
-export function parseCursorVariant(model: CursorUsableModel): CursorVariant {
+export function parseCursorVariant(model: CursorUsableModel, catalogIds?: ReadonlySet<string>): CursorVariant {
 	let base = model.id;
 	let fast = false;
 	let thinking = false;
@@ -149,7 +149,8 @@ export function parseCursorVariant(model: CursorUsableModel): CursorVariant {
 		thinking = true;
 		base = base.slice(0, -"-thinking".length);
 	}
-	const effort = EFFORTS.find((candidate) => base.endsWith(`-${candidate}`));
+	const effortCandidate = EFFORTS.find((candidate) => base.endsWith(`-${candidate}`));
+	const effort = effortCandidate && hasEffortSiblingEvidence(base, effortCandidate, { fast, thinking }, catalogIds) ? effortCandidate : undefined;
 	if (effort) {
 		base = base.slice(0, -effort.length - 1);
 	}
@@ -168,15 +169,18 @@ export function parseCursorVariant(model: CursorUsableModel): CursorVariant {
 }
 
 function groupCursorModels(models: readonly CursorUsableModel[]): CursorVariantGroup[] {
+	const catalogIds = new Set(models.map((model) => model.id));
 	const groups = new Map<string, CursorVariant[]>();
 	for (const model of models) {
-		const variant = parseCursorVariant(model);
-		const existing = groups.get(variant.baseId) ?? [];
+		const variant = parseCursorVariant(model, catalogIds);
+		const key = cursorVariantGroupKey(variant);
+		const existing = groups.get(key) ?? [];
 		existing.push(variant);
-		groups.set(variant.baseId, existing);
+		groups.set(key, existing);
 	}
-	return [...groups.entries()]
-		.map(([baseId, variants]) => {
+	return [...groups.values()]
+		.map((variants) => {
+			const baseId = variants[0]?.baseId ?? "cursor";
 			const primaryId = choosePrimaryId(variants, baseId);
 			return {
 				baseId,
@@ -185,7 +189,19 @@ function groupCursorModels(models: readonly CursorUsableModel[]): CursorVariantG
 				variants,
 			};
 		})
-		.sort((left, right) => left.baseId.localeCompare(right.baseId));
+		.sort((left, right) => left.primaryId.localeCompare(right.primaryId));
+}
+
+function cursorVariantGroupKey(variant: CursorVariant): string {
+	return `${variant.baseId}|fast=${variant.fast ? "1" : "0"}|thinking=${variant.thinking ? "1" : "0"}`;
+}
+
+function hasEffortSiblingEvidence(baseWithEffort: string, effort: CursorEffort, mode: { readonly fast: boolean; readonly thinking: boolean }, catalogIds?: ReadonlySet<string>): boolean {
+	if (!catalogIds) return true;
+	const base = baseWithEffort.slice(0, -effort.length - 1);
+	const modeSuffix = `${mode.thinking ? "-thinking" : ""}${mode.fast ? "-fast" : ""}`;
+	if (catalogIds.has(`${base}${modeSuffix}`)) return true;
+	return EFFORTS.some((candidate) => candidate !== effort && catalogIds.has(`${base}-${candidate}${modeSuffix}`));
 }
 
 function collectEffortVariants(variants: readonly CursorVariant[], primaryId: string): ReadonlyMap<CursorEffort, string> {

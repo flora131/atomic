@@ -18,13 +18,17 @@ export interface CursorStreamAdapterOptions {
 	readonly transport: CursorAgentTransport;
 	readonly conversationState?: CursorConversationStateStore;
 	readonly uuid?: () => string;
+	readonly pausedTurnIdleTimeoutMs?: number;
 }
 
 interface CursorStreamRuntime {
 	readonly transport: CursorAgentTransport;
 	readonly conversationState: CursorConversationStateStore;
 	readonly uuid: () => string;
+	readonly pausedTurnIdleTimeoutMs: number;
 }
+
+const DEFAULT_PAUSED_TURN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 type IteratorReadResult =
 	| { readonly kind: "message"; readonly result: IteratorResult<CursorServerMessage> }
@@ -42,6 +46,7 @@ export class CursorStreamAdapter {
 			transport: options.transport,
 			conversationState: options.conversationState ?? new CursorConversationStateStore(),
 			uuid: options.uuid ?? defaultCursorUuid,
+			pausedTurnIdleTimeoutMs: options.pausedTurnIdleTimeoutMs ?? DEFAULT_PAUSED_TURN_IDLE_TIMEOUT_MS,
 		};
 	}
 
@@ -124,7 +129,7 @@ export class CursorStreamAdapter {
 					sawToolCall = true;
 					appendToolCall(stream, output, message.id, message.name, message.argumentsJson);
 					closeOpenContent(stream, output, textIndex, thinkingIndex);
-					this.#runtime.conversationState.pauseTurnForTools(conversationId, runStream, [message]);
+					this.#runtime.conversationState.pauseTurnForTools(conversationId, runStream, [message], { signal: options?.signal, idleTimeoutMs: this.#runtime.pausedTurnIdleTimeoutMs });
 					output.stopReason = "toolUse";
 					stream.push({ type: "done", reason: "toolUse", message: output });
 					terminalEventSent = true;

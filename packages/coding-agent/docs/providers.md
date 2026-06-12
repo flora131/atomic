@@ -49,7 +49,7 @@ Current limitations:
 - Cursor uses private, undocumented APIs. Atomic keeps the transport isolated and labels this provider experimental because Cursor may change the protocol without notice.
 - Text input is supported; vision/image input is rejected with a clear error.
 - Model metadata is cached token-free in `~/.atomic/agent/cursor-model-catalog.json` and can be used at startup before fresh credentials are available. Estimated labels are used only when no valid cache exists and allowed live `GetUsableModels` discovery failures occur; refresh-time discovery is best-effort so rotated credentials are still persisted.
-- The implementation avoids the prior localhost proxy/child-process bridge design. HTTP/2 Connect request/framing code is isolated, buffered across arbitrary chunks, tested with injected fakes, and uses a minimal production protobuf codec with field-order-independent exec ids, protobuf `Value` tool arguments, checkpoint token-details parsing, and credential-redacted protocol errors.
+- The implementation avoids the prior localhost proxy/child-process bridge design. HTTP/2 Connect request/framing code is isolated, buffered across arbitrary chunks, tested with injected fakes, and uses a minimal production protobuf codec with field-order-independent exec ids, protobuf `Value` plus raw UTF-8/JSON tool arguments, historical tool-result correlation, checkpoint token-details parsing, paused-stream abort/idle cleanup, catalog-aware fast/thinking model grouping, and credential/PKCE-redacted protocol errors.
 
 Select models as `cursor/<model-id>` (default: `cursor/composer-2`).
 

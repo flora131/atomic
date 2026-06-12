@@ -232,7 +232,7 @@ export class CursorAuthService {
 				if (consecutiveErrors >= 3) {
 					throw new CursorAuthError(
 						"PollRejected",
-						`Cursor login polling was rejected (${response.status}): ${sanitizeDiagnosticText(responseText)}`,
+						`Cursor login polling was rejected (${response.status}): ${sanitizeDiagnosticText(responseText, [verifier, uuid, pollUrl.toString()])}`,
 						response.status,
 					);
 				}

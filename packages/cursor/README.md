@@ -6,14 +6,14 @@ Experimental first-party Atomic provider for Cursor subscription models.
 
 This package registers `cursor` via Atomic's bundled extension provider API. `/login` shows **Cursor (experimental)** and stores credentials through Atomic OAuth storage only (`~/.atomic/agent/auth.json`). The provider currently ships a native `streamSimple` adapter plus an isolated HTTP/2 Connect transport boundary; no local proxy server or child-process bridge is used.
 
-Cursor's model/agent APIs are private and may change without notice. Live `GetUsableModels` and `Run` request paths, headers, buffered Connect frame helpers, lifecycle cleanup, and injectable client/codec seams are isolated in `src/transport.ts`. Production defaults now use an isolated minimal Cursor protobuf codec in `src/proto/`; JSON framing remains available only as an explicitly injected test fixture. Run streaming writes the first Connect frame immediately, advertises Atomic tools with Cursor's `McpTools` wrapper schema, decodes `execServerMessage.mcpArgs` tool calls, classifies Connect end-stream errors, accumulates token deltas/checkpoints, and reconstructs per-turn conversation/tool context from Atomic `Context`.
+Cursor's model/agent APIs are private and may change without notice. Live `GetUsableModels` and `Run` request paths, headers, buffered Connect frame helpers, lifecycle cleanup, and injectable client/codec seams are isolated in `src/transport.ts`. Production defaults now use an isolated minimal Cursor protobuf codec in `src/proto/`; JSON framing remains available only as an explicitly injected test fixture. Run streaming writes the first Connect frame immediately, uses stable conversation ids when Atomic supplies a session id, advertises Atomic tools with Cursor's `McpTools` wrapper schema, decodes `execServerMessage.mcpArgs` tool calls, pauses for Atomic tool execution, resumes the same stream with `ExecClientMessage.mcp_result`, classifies Connect end-stream errors, accumulates token deltas/checkpoints, and reconstructs per-turn conversation/tool context from Atomic `Context`.
 
 Live model catalogs are cached without credentials at `~/.atomic/agent/cursor-model-catalog.json` (or the configured `ATOMIC_CODING_AGENT_DIR`). Startup uses a valid cached live catalog before falling back to estimated metadata, and login/refresh/first authenticated stream refreshes the cache best-effort without blocking token rotation. Successful live and cached-live catalogs are registered exactly as Cursor advertised them; static defaults such as `composer-2` are only present in explicitly estimated fallback catalogs.
 
 ## Limitations
 
 - Text input only. Vision/image content is rejected with a clear error.
-- Tool-call streaming is implemented in the adapter contract and covered with fake/protobuf transport tests; full native Cursor protobuf tool-result resume remains deferred.
+- Tool-call streaming and same-stream tool-result resume are implemented in the adapter contract and covered with fake/protobuf transport tests; Cursor's private protocol may still drift.
 - Credentials are OAuth-only. Do not pass Cursor tokens via command-line args, environment variables, logs, or local proxy processes.
 
 ## Attribution

@@ -17,8 +17,9 @@ Centralized headers live in `src/config.ts`, including `x-cursor-client-version:
 Field provenance (from `ndraiman/pi-cursor-provider` vendored `proto/agent_pb.ts` commit `82fc4e7`, itself derived from MIT `opencode-cursor`):
 
 - `AgentClientMessage.run_request = 1`
+- `AgentClientMessage.exec_client_message = 2`
 - `AgentClientMessage.conversation_action = 4`
-- `AgentRunRequest.conversation_state = 1`, `action = 2`, `model_details = 3`, `mcp_tools = 4`, `conversation_id = 5`, `custom_system_prompt = 8`
+- `AgentRunRequest.conversation_state = 1`, `action = 2`, `model_details = 3`, `mcp_tools = 4`, `conversation_id = 5`, `custom_system_prompt = 8`; `conversation_id` is the stable Atomic session/conversation id when available, while request ids remain per-call tracing/message-id seeds.
 - `AgentRunRequest.mcp_tools = 4` contains a `McpTools` wrapper, not direct tool definitions; `McpTools.mcp_tools = 1` repeats `McpToolDefinition` messages.
 - `McpToolDefinition.name = 1`, `description = 2`, `input_schema = 3` (UTF-8 JSON schema bytes), `provider_identifier = 4`, `tool_name = 5`
 - `ConversationStateStructure.root_prompt_messages_json = 1`, `turns = 8`
@@ -28,5 +29,6 @@ Field provenance (from `ndraiman/pi-cursor-provider` vendored `proto/agent_pb.ts
 - `AgentServerMessage.interaction_update = 1`, `exec_server_message = 2`, `conversation_checkpoint_update = 3`
 - `InteractionUpdate.text_delta = 1`, `thinking_delta = 4`, `token_delta = 8`, `turn_ended = 14`
 - `ExecServerMessage.exec_id = 15`, `mcp_args = 11`; `McpArgs.name = 1`, `args = 2`, `tool_call_id = 3`, `provider_identifier = 4`, `tool_name = 5`
+- `ExecClientMessage.id = 1`, `mcp_result = 11`, `exec_id = 15`; Atomic writes these frames back to the same paused Run stream for tool results rather than encoding tool results as user-message text.
 
 If Cursor changes the private protocol, add or generate updated protobuf message definitions here and keep generated code isolated from provider registration/stream mapping. Do not introduce a localhost OpenAI-compatible proxy or child-process bridge.

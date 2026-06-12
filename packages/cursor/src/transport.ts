@@ -42,6 +42,7 @@ export interface CursorTransportLifecycleSnapshot {
 export interface CursorRunRequest {
 	readonly accessToken: string;
 	readonly requestId: string;
+	readonly conversationId?: string;
 	readonly model: Model<Api>;
 	readonly resolvedModelId: string;
 	readonly thinkingLevel?: ThinkingLevel;
@@ -59,9 +60,19 @@ export type CursorServerMessage =
 	| { readonly type: "usage"; readonly kind: "outputDelta"; readonly outputTokens: number }
 	| { readonly type: "done"; readonly reason: CursorDoneReason };
 
+export interface CursorToolResultMessage {
+	readonly toolCallId: string;
+	readonly toolName: string;
+	readonly text: string;
+	readonly isError: boolean;
+	readonly execId?: string;
+	readonly execNumericId?: number;
+}
+
 export interface CursorRunStream {
 	readonly id: string;
 	readonly messages: AsyncIterable<CursorServerMessage>;
+	writeToolResult(result: CursorToolResultMessage): Promise<void>;
 	cancel(): Promise<void>;
 	close(): Promise<void>;
 }
@@ -115,6 +126,7 @@ export interface CursorProtocolCodec {
 	decodeGetUsableModelsResponse(data: Uint8Array): readonly CursorUsableModel[];
 	encodeRunRequest(request: CursorRunRequest): Uint8Array;
 	decodeRunFrame(frame: CursorConnectFrame): readonly CursorServerMessage[];
+	encodeToolResult(result: CursorToolResultMessage): Uint8Array;
 	encodeCancelRequest(): Uint8Array;
 	encodeHeartbeatRequest(): Uint8Array;
 }
@@ -260,6 +272,11 @@ class Http2CursorRunStream implements CursorRunStream {
 		readonly onClose: () => void,
 	) {
 		this.messages = this.createMessages();
+	}
+
+	async writeToolResult(result: CursorToolResultMessage): Promise<void> {
+		if (this.#closed) throw new CursorTransportError("ProtocolError", "Cannot write Cursor tool result to a closed stream.");
+		await this.handle.write(encodeCursorConnectFrame(this.codec.encodeToolResult(result)));
 	}
 
 	async cancel(): Promise<void> {
@@ -526,6 +543,7 @@ export class JsonCursorProtocolCodec implements CursorProtocolCodec {
 		return textEncoder.encode(JSON.stringify({
 			modelId: request.resolvedModelId,
 			requestId: request.requestId,
+			conversationId: request.conversationId,
 			thinkingLevel: request.thinkingLevel,
 			messageCount: request.context.messages.length,
 		}));
@@ -537,6 +555,10 @@ export class JsonCursorProtocolCodec implements CursorProtocolCodec {
 			throw createCursorExperimentalProtocolError("Cursor protobuf Run decoding is not available; inject a protobuf codec or use JSON-compatible test frames.");
 		}
 		return parseCursorServerMessagesFromJson(parsed);
+	}
+
+	encodeToolResult(result: CursorToolResultMessage): Uint8Array {
+		return textEncoder.encode(JSON.stringify({ type: "toolResult", ...result }));
 	}
 
 	encodeCancelRequest(): Uint8Array {
@@ -555,6 +577,7 @@ export class CursorMockRunStream implements CursorRunStream {
 	#onClose: () => void;
 	#cancelled = false;
 	#closed = false;
+	readonly writtenToolResults: CursorToolResultMessage[] = [];
 
 	constructor(id: string, messages: AsyncIterable<CursorServerMessage>, onCancel: () => void, onClose: () => void) {
 		this.id = id;
@@ -571,10 +594,18 @@ export class CursorMockRunStream implements CursorRunStream {
 		return this.#closed;
 	}
 
+	async writeToolResult(result: CursorToolResultMessage): Promise<void> {
+		this.writtenToolResults.push(result);
+	}
+
 	async cancel(): Promise<void> {
 		if (this.#cancelled) return;
 		this.#cancelled = true;
 		this.#onCancel();
+		if (!this.#closed) {
+			this.#closed = true;
+			this.#onClose();
+		}
 	}
 
 	async close(): Promise<void> {
@@ -637,7 +668,7 @@ export class CursorMockTransport implements CursorAgentTransport {
 
 	async dispose(): Promise<void> {
 		for (const run of this.runs) {
-			await run.stream.close();
+			await run.stream.cancel();
 		}
 	}
 

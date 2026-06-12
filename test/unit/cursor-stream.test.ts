@@ -139,13 +139,13 @@ describe("CursorStreamAdapter", () => {
 		assert.equal(done?.type, "done");
 		if (done?.type === "done") {
 			assert.equal(done.reason, "toolUse");
-			assert.equal(done.message.usage.input, 10);
-			assert.equal(done.message.usage.output, 5);
-			assert.equal(done.message.usage.totalTokens, 15);
-			assert.ok(Math.abs(done.message.usage.cost.total - 0.00002) < 0.000000001);
+			assert.equal(done.message.usage.input, 0);
+			assert.equal(done.message.usage.output, 0);
+			assert.equal(done.message.usage.totalTokens, 0);
 		}
 		assert.equal(transport.runs[0]?.request.resolvedModelId, "composer-2-high");
-		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 0, closedStreams: 1 });
+		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 1, cancelledStreams: 0, closedStreams: 0 });
+		await adapter.dispose();
 	});
 
 	test("checkpoint output totals override accumulated usage deltas", async () => {
@@ -175,7 +175,43 @@ describe("CursorStreamAdapter", () => {
 		assert.equal(done?.type, "done");
 		if (done?.type === "done") assert.equal(done.reason, "toolUse");
 		assert.deepEqual(events.map((event) => event.type), ["start", "toolcall_start", "toolcall_delta", "toolcall_end", "done"]);
+		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 1, cancelledStreams: 0, closedStreams: 0 });
+		await adapter.dispose();
+		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 1, closedStreams: 1 });
+	});
+
+	test("resumes a paused Cursor tool turn with trailing tool results", async () => {
+		const transport = new CursorMockTransport({ messages: [
+			{ type: "toolCall", id: "tool-1", name: "Read", argumentsJson: "{\"path\":\"README.md\"}", execId: "exec-1", execNumericId: 7 },
+			{ type: "textDelta", text: "done" },
+			{ type: "done", reason: "stop" },
+		] });
+		const adapter = new CursorStreamAdapter({ transport, uuid: () => "request-1" });
+		const firstEvents = await collectEvents(adapter.streamSimple(model(), context(), { apiKey: "access-secret", sessionId: "session-1" }));
+		assert.equal(firstEvents.at(-1)?.type, "done");
+		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 1, cancelledStreams: 0, closedStreams: 0 });
+
+		const resumeContext: Context = { messages: [{ role: "toolResult", toolCallId: "tool-1", toolName: "Read", content: [{ type: "text", text: "file contents" }], isError: false, timestamp: 2 }] };
+		const secondEvents = await collectEvents(adapter.streamSimple(model(), resumeContext, { apiKey: "access-secret", sessionId: "session-1" }));
+
+		assert.equal(transport.runs.length, 1);
+		assert.deepEqual(transport.runs[0]?.stream.writtenToolResults, [{ toolCallId: "tool-1", toolName: "Read", text: "file contents", isError: false, execId: "exec-1", execNumericId: 7 }]);
+		assert.equal(secondEvents.some((event) => event.type === "text_delta"), true);
+		assert.equal(secondEvents.at(-1)?.type, "done");
 		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 0, closedStreams: 1 });
+	});
+
+	test("rejects unmatched trailing tool results without starting a new Cursor run", async () => {
+		const transport = new CursorMockTransport({ messages: [{ type: "done", reason: "stop" }] });
+		const adapter = new CursorStreamAdapter({ transport, uuid: () => "request-orphan" });
+		const orphanContext: Context = { messages: [{ role: "toolResult", toolCallId: "missing-tool", toolName: "Read", content: [{ type: "text", text: "orphan" }], isError: false, timestamp: 1 }] };
+
+		const events = await collectEvents(adapter.streamSimple(model(), orphanContext, { apiKey: "access-secret", sessionId: "session-missing" }));
+
+		assert.equal(transport.runs.length, 0);
+		const terminal = events.at(-1);
+		assert.equal(terminal?.type, "error");
+		if (terminal?.type === "error") assert.match(terminal.error.errorMessage ?? "", /no paused tool turn/u);
 	});
 
 	test("aborts active streams, sends cancel, and releases lifecycle handles", async () => {

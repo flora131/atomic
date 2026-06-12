@@ -12,7 +12,7 @@ import {
 import { parseJsonObject, sanitizeDiagnosticText } from "./config.js";
 import { CursorConversationStateStore } from "./conversation-state.js";
 import { resolveCursorModelVariant } from "./model-mapper.js";
-import type { CursorAgentTransport, CursorRunStream, CursorServerMessage } from "./transport.js";
+import type { CursorAgentTransport, CursorRunStream, CursorServerMessage, CursorToolResultMessage } from "./transport.js";
 
 export interface CursorStreamAdapterOptions {
 	readonly transport: CursorAgentTransport;
@@ -90,16 +90,22 @@ export class CursorStreamAdapter {
 			const requestId = this.#runtime.uuid();
 			conversationId = options.sessionId ?? requestId;
 			const resolvedModelId = resolveCursorModelVariant(model.id, model.thinkingLevelMap, options.reasoning);
-			runStream = await this.#runtime.transport.run({
+			const trailingToolResults = getTrailingToolResults(context);
+			if (trailingToolResults.length > 0) {
+				runStream = await this.#runtime.conversationState.resumeTurnWithToolResults(conversationId, trailingToolResults);
+			} else {
+				runStream = await this.#runtime.transport.run({
 				accessToken: options.apiKey,
 				requestId,
+				conversationId,
 				model,
 				resolvedModelId,
 				thinkingLevel: options.reasoning,
 				context,
 				signal: options.signal,
-			});
-			this.#runtime.conversationState.registerTurn(conversationId, runStream);
+				});
+				this.#runtime.conversationState.registerTurn(conversationId, runStream);
+			}
 			const iterator = runStream.messages[Symbol.asyncIterator]();
 			while (true) {
 				const next = await readNextCursorMessage(iterator, options.signal);
@@ -117,6 +123,13 @@ export class CursorStreamAdapter {
 				} else if (message.type === "toolCall") {
 					sawToolCall = true;
 					appendToolCall(stream, output, message.id, message.name, message.argumentsJson);
+					closeOpenContent(stream, output, textIndex, thinkingIndex);
+					this.#runtime.conversationState.pauseTurnForTools(conversationId, runStream, [message]);
+					output.stopReason = "toolUse";
+					stream.push({ type: "done", reason: "toolUse", message: output });
+					terminalEventSent = true;
+					runStream = undefined;
+					break;
 				} else if (message.type === "usage") {
 					updateUsage(output, model, message);
 				} else {
@@ -187,6 +200,20 @@ function createOutputMessage(model: Model<Api>): AssistantMessage {
 		stopReason: "stop",
 		timestamp: Date.now(),
 	};
+}
+
+function getTrailingToolResults(context: Context): CursorToolResultMessage[] {
+	const results: CursorToolResultMessage[] = [];
+	for (let index = context.messages.length - 1; index >= 0; index--) {
+		const message = context.messages[index];
+		if (!message || message.role !== "toolResult") break;
+		results.unshift({ toolCallId: message.toolCallId, toolName: message.toolName, text: textFromToolResult(message), isError: message.isError });
+	}
+	return results;
+}
+
+function textFromToolResult(message: Extract<Context["messages"][number], { readonly role: "toolResult" }>): string {
+	return message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n");
 }
 
 function hasImageInput(context: Context): boolean {

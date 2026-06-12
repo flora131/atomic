@@ -1,6 +1,6 @@
 import { createCursorExperimentalProtocolError, type JsonObject, type JsonValue } from "../config.js";
 import type { CursorUsableModel } from "../model-mapper.js";
-import type { CursorConnectFrame, CursorDoneReason, CursorProtocolCodec, CursorRunRequest, CursorServerMessage } from "../transport.js";
+import type { CursorConnectFrame, CursorDoneReason, CursorProtocolCodec, CursorRunRequest, CursorServerMessage, CursorToolResultMessage } from "../transport.js";
 
 // Minimal Cursor protobuf codec derived from protocol field numbers documented from
 // MIT-licensed ndraiman/pi-cursor-provider and ephraimduncan/opencode-cursor.
@@ -33,7 +33,7 @@ export class CursorProtobufProtocolCodec implements CursorProtocolCodec {
 
 	encodeRunRequest(request: CursorRunRequest): Uint8Array {
 		const modelDetails = encodeMessageField(3, encodeModelDetails(request.resolvedModelId, request.model.name ?? request.resolvedModelId));
-		const conversationId = encodeStringField(5, request.requestId);
+		const conversationId = encodeStringField(5, request.conversationId ?? request.requestId);
 		const customSystemPrompt = request.context.systemPrompt ? encodeStringField(8, request.context.systemPrompt) : new Uint8Array();
 		const conversationState = encodeConversationState(request);
 		const tools = encodeMcpTools(request);
@@ -49,6 +49,10 @@ export class CursorProtobufProtocolCodec implements CursorProtocolCodec {
 		} catch (error) {
 			throw createCursorExperimentalProtocolError(`Cursor protobuf Run decoding failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
+	}
+
+	encodeToolResult(result: CursorToolResultMessage): Uint8Array {
+		return encodeMcpToolResult(result);
 	}
 
 	encodeCancelRequest(): Uint8Array {
@@ -245,6 +249,15 @@ function encodeMcpSuccessResult(text: string, isError: boolean): Uint8Array {
 	const textContent = encodeMessageField(1, encodeStringField(1, text));
 	const success = concatBytes(encodeMessageField(1, textContent), encodeVarintField(2, isError ? 1n : 0n));
 	return encodeMessageField(1, success);
+}
+
+function encodeMcpToolResult(result: CursorToolResultMessage): Uint8Array {
+	const execFields = concatBytes(
+		result.execNumericId !== undefined ? encodeVarintField(1, BigInt(result.execNumericId)) : new Uint8Array(),
+		encodeMessageField(11, encodeMcpSuccessResult(result.text, result.isError)),
+		result.execId ? encodeStringField(15, result.execId) : new Uint8Array(),
+	);
+	return encodeMessageField(2, execFields);
 }
 
 function stringifyArguments(value: object): string {

@@ -75,6 +75,7 @@ class FakeCodec implements CursorProtocolCodec {
 	readonly runRequest = new Uint8Array([8]);
 	readonly cancelRequest = new Uint8Array([7]);
 	readonly heartbeatRequest = new Uint8Array([6]);
+	readonly toolResultRequest = new Uint8Array([5]);
 	decodedUnary: Uint8Array | undefined;
 	decodedFrames: CursorConnectFrame[] = [];
 
@@ -98,6 +99,10 @@ class FakeCodec implements CursorProtocolCodec {
 		if (value === 2) return [{ type: "thinkingDelta", text: "think" }];
 		if (value === 3) return [{ type: "usage", kind: "checkpoint", inputTokens: 4, outputTokens: 5 }];
 		return [{ type: "done", reason: "stop" }];
+	}
+
+	encodeToolResult(): Uint8Array {
+		return this.toolResultRequest;
 	}
 
 	encodeCancelRequest(): Uint8Array {
@@ -195,6 +200,17 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: interactionUpdate, endStream: false }), [{ type: "textDelta", text: "hello" }]);
 	});
 
+	test("protobuf codec uses stable conversation ids separately from request ids", () => {
+		const codec = new CursorProtobufProtocolCodec();
+		const encodedRun = codec.encodeRunRequest({ accessToken: "secret", requestId: "request-a", conversationId: "session-stable", model, resolvedModelId: "composer-2", context });
+		const top = __cursorProtoTest.readFields(encodedRun);
+		const runRequest = top[0]?.value;
+		assert.ok(runRequest instanceof Uint8Array);
+		const conversationField = __cursorProtoTest.readFields(runRequest).find((field) => field.fieldNumber === 5)?.value;
+		assert.ok(conversationField instanceof Uint8Array);
+		assert.equal(__cursorProtoTest.decodeString(conversationField), "session-stable");
+	});
+
 	test("protobuf codec wraps MCP tool definitions with Cursor schema field numbers", () => {
 		const codec = new CursorProtobufProtocolCodec();
 		const encodedRun = codec.encodeRunRequest({
@@ -229,6 +245,22 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.deepEqual(JSON.parse(__cursorProtoTest.decodeString(definitionFields.get(3) as Uint8Array)), { type: "object", properties: { path: { type: "string" } } });
 		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(4) as Uint8Array), "atomic");
 		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(5) as Uint8Array), "Read");
+	});
+
+	test("protobuf codec encodes tool results as exec client MCP results", () => {
+		const codec = new CursorProtobufProtocolCodec();
+		const encoded = codec.encodeToolResult({ toolCallId: "tool-1", toolName: "Read", text: "file contents", isError: false, execId: "exec-1", execNumericId: 7 });
+		const agentFields = __cursorProtoTest.readFields(encoded);
+		assert.equal(agentFields[0]?.fieldNumber, 2);
+		const execMessage = agentFields[0]?.value;
+		assert.ok(execMessage instanceof Uint8Array);
+		const execFields = __cursorProtoTest.readFields(execMessage);
+		assert.equal(execFields.find((field) => field.fieldNumber === 1)?.value, 7n);
+		assert.equal(__cursorProtoTest.decodeString(execFields.find((field) => field.fieldNumber === 15)?.value as Uint8Array), "exec-1");
+		const result = execFields.find((field) => field.fieldNumber === 11)?.value;
+		assert.ok(result instanceof Uint8Array);
+		assert.equal(new TextDecoder().decode(encoded).includes("toolResult:tool-1"), false);
+		assert.equal(new TextDecoder().decode(encoded).includes("file contents"), true);
 	});
 
 	test("protobuf codec decodes checkpoint token details without treating max tokens as output", () => {

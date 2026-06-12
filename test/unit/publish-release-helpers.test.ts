@@ -5,11 +5,14 @@ import {
   firstActionsUrl,
   firstNonEmptyLine,
   firstPrUrl,
+  firstPullRequestUrl,
   hasLeadingStatus,
   hasStatusMarker,
   prereleaseVersionPattern,
   releaseVersionPattern,
   validateReleaseRequest,
+  verifyPullRequestMergedJson,
+  type JsonValue,
 } from "../../.atomic/workflows/lib/publish-release-helpers.js";
 
 describe("publish-release version validation", () => {
@@ -65,18 +68,20 @@ describe("publish-release URL extraction", () => {
     );
   });
 
-  test("selects the first pull request URL before falling back to the first URL", () => {
+  test("selects the first pull request URL and ignores unrelated URLs", () => {
     const text = [
       "Issue: https://github.com/earendil-works/pi-mono/issues/99",
       "PR: https://github.com/earendil-works/pi-mono/pull/123.",
       "Later PR: https://github.com/earendil-works/pi-mono/pull/456",
     ].join("\n");
 
+    assert.equal(firstPullRequestUrl(text), "https://github.com/earendil-works/pi-mono/pull/123");
     assert.equal(firstPrUrl(text), "https://github.com/earendil-works/pi-mono/pull/123");
-    assert.equal(firstPrUrl("Docs: https://example.com/release-notes;"), "https://example.com/release-notes");
+    assert.equal(firstPullRequestUrl("Docs: https://example.com/release-notes;"), undefined);
+    assert.equal(firstPrUrl("Docs: https://example.com/release-notes;"), undefined);
   });
 
-  test("selects the first actions run URL before falling back to the first URL", () => {
+  test("selects the first actions run URL and ignores unrelated URLs", () => {
     const text = [
       "Workflow: https://github.com/earendil-works/pi-mono/actions/workflows/publish.yml",
       "Run: https://github.com/earendil-works/pi-mono/actions/runs/987654321)",
@@ -84,7 +89,7 @@ describe("publish-release URL extraction", () => {
     ].join("\n");
 
     assert.equal(firstActionsUrl(text), "https://github.com/earendil-works/pi-mono/actions/runs/987654321");
-    assert.equal(firstActionsUrl("Docs: https://example.com/actions."), "https://example.com/actions");
+    assert.equal(firstActionsUrl("Docs: https://example.com/actions."), undefined);
   });
 });
 
@@ -102,30 +107,67 @@ describe("publish-release status parsing", () => {
 
   test("accepts a standalone status marker even when the model adds a preamble", () => {
     const text = [
-      "I verified the PR state before reporting success.",
-      "MERGE_STATUS: merged",
-      "MERGE_STATE: MERGED",
-      "MERGE_COMMIT: abc123",
+      "I verified the checks before reporting success.",
+      "CHECK_STATUS: passed",
+      "CHECK_RUN: typecheck",
+      "CHECK_RUN: test:unit",
     ].join("\n");
 
-    assert.equal(hasStatusMarker(text, "MERGE_STATUS: merged"), true);
+    assert.equal(hasStatusMarker(text, "CHECK_STATUS: passed"), true);
   });
 
   test("uses the last standalone marker for the same status key", () => {
     assert.equal(
-      hasStatusMarker("MERGE_STATUS: merged\nMERGE_STATUS: blocked", "MERGE_STATUS: merged"),
+      hasStatusMarker("CHECK_STATUS: passed\nCHECK_STATUS: failed", "CHECK_STATUS: passed"),
       false,
     );
     assert.equal(
-      hasStatusMarker("MERGE_STATUS: blocked\nMERGE_STATUS: merged", "MERGE_STATUS: merged"),
+      hasStatusMarker("CHECK_STATUS: failed\nCHECK_STATUS: passed", "CHECK_STATUS: passed"),
       true,
     );
   });
 
   test("rejects inline, bulleted, partial, and wrong-key status mentions", () => {
-    assert.equal(hasStatusMarker("Result: MERGE_STATUS: merged", "MERGE_STATUS: merged"), false);
-    assert.equal(hasStatusMarker("- MERGE_STATUS: merged", "MERGE_STATUS: merged"), false);
-    assert.equal(hasStatusMarker("MERGE_STATUS: merged after verification", "MERGE_STATUS: merged"), false);
-    assert.equal(hasStatusMarker("PUBLISH_STATUS: merged", "MERGE_STATUS: merged"), false);
+    assert.equal(hasStatusMarker("Result: CHECK_STATUS: passed", "CHECK_STATUS: passed"), false);
+    assert.equal(hasStatusMarker("- CHECK_STATUS: passed", "CHECK_STATUS: passed"), false);
+    assert.equal(hasStatusMarker("CHECK_STATUS: passed after verification", "CHECK_STATUS: passed"), false);
+    assert.equal(hasStatusMarker("PUBLISH_STATUS: passed", "CHECK_STATUS: passed"), false);
+  });
+});
+
+describe("publish-release GitHub merge verification", () => {
+  const mergedPr: JsonValue = {
+    state: "MERGED",
+    mergedAt: "2026-06-12T08:00:00Z",
+    mergeCommit: { oid: "abc123" },
+    baseRefName: "main",
+    headRefName: "release/1.2.3",
+    headRefOid: "def456",
+    url: "https://github.com/earendil-works/pi-mono/pull/123",
+  };
+
+  test("accepts GitHub PR JSON only when merged with matching refs and merge commit", () => {
+    assert.deepEqual(verifyPullRequestMergedJson(mergedPr, "release/1.2.3"), {
+      ok: true,
+      summary: [
+        "GitHub PR is verified as merged.",
+        "state: MERGED",
+        "mergedAt: 2026-06-12T08:00:00Z",
+        "mergeCommit.oid: abc123",
+        "baseRefName: main",
+        "headRefName: release/1.2.3",
+        "url: https://github.com/earendil-works/pi-mono/pull/123",
+      ].join("\n"),
+      mergeCommitOid: "abc123",
+      prUrl: "https://github.com/earendil-works/pi-mono/pull/123",
+    });
+  });
+
+  test("rejects unmerged or mismatched GitHub PR JSON", () => {
+    const result = verifyPullRequestMergedJson({ ...mergedPr, state: "OPEN", headRefName: "release/other" }, "release/1.2.3");
+
+    assert.equal(result.ok, false);
+    assert.match(result.summary, /state was OPEN, expected MERGED/u);
+    assert.match(result.summary, /headRefName was release\/other, expected release\/1\.2\.3/u);
   });
 });

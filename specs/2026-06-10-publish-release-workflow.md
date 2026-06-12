@@ -162,9 +162,10 @@ The workflow should fail early when:
    - commits changes.
 3. `run-release-checks` — toolful stage that runs `bun run typecheck` and `bun run test:unit`.
 4. `open-release-pr` — toolful stage that pushes branch and creates/reuses a PR targeting `main` with `gh`, verifying PR base/head/SHA with `gh pr view --json`.
-5. `wait-for-release-ci-and-merge` — toolful stage that waits for checks and merges/automerge when checks pass, does not delete the release/prerelease branch, and confirms the remote branch still exists; if checks fail, it must stop with actionable failure details.
-6. `tag-and-monitor-publish` — toolful stage that syncs main, creates/pushes tag, and monitors release/publish action.
-7. Workflow returns summary outputs.
+5. `wait-for-release-ci-and-merge` — toolful stage that waits for checks and merges/automerge when checks pass, does not delete the release/prerelease branch, and reports actionable failure details if checks fail.
+6. Deterministic merge verification in the workflow body — runs `gh pr view <pr-url-or-branch> --json state,mergedAt,mergeCommit,baseRefName,headRefName,headRefOid,url` and `git ls-remote --heads origin <release-branch>`; GitHub state, not an LLM status marker, is the source of truth before tagging.
+7. `tag-and-monitor-publish` — toolful stage that syncs main, creates/pushes tag, and monitors release/publish action.
+8. Workflow returns summary outputs.
 
 Large command output should stay in stage transcripts/artifacts, while the final returned `summary` stays compact.
 
@@ -179,7 +180,7 @@ Large command output should stay in stage transcripts/artifacts, while the final
 ## 7. Cross-Cutting Concerns
 
 - **Security:** The workflow relies on local git and `gh` credentials; it must not fabricate success when auth is missing.
-- **Irreversibility:** Merging and tag pushing are separate honest doors.
+- **Irreversibility:** Merging and tag pushing are separate honest doors; after the merge stage, the workflow body performs a deterministic GitHub verification so a formatting error in an agent response cannot block after a successful merge.
 - **Failure behavior:** CI/publish failures produce `blocked`/`failed` summaries with evidence rather than continuing.
 - **Concurrency:** The workflow should refuse dirty or conflicting git state unless the stage can safely commit existing release changes as intended.
 - **Bun compliance:** All local validation/version/dependency commands use Bun.

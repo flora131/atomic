@@ -2,9 +2,13 @@ import { defineWorkflow, Type } from "@bastani/workflows";
 import {
   firstActionsUrl,
   firstPrUrl,
+  firstPullRequestUrl,
   hasStatusMarker,
   validateReleaseRequest,
+  verifyPullRequestMergedJson,
+  type JsonValue,
   type PublishReleaseOutput,
+  type PullRequestMergeVerification,
   type ReleaseStatus,
   type ValidatedRelease,
 } from "./lib/publish-release-helpers.js";
@@ -20,7 +24,7 @@ function excerpt(text: string, limit = 1_200): string {
 function blockedOutput(
   release: ValidatedRelease,
   stage: string,
-  expectedMarker: string,
+  expectedResult: string,
   text: string,
   status: ReleaseStatus = "blocked",
 ): PublishReleaseOutput {
@@ -31,11 +35,105 @@ function blockedOutput(
     branch: release.branch,
     summary: [
       `publish-release stopped during ${stage} for ${release.kind} ${release.version}.`,
-      `Expected marker: ${expectedMarker}`,
+      `Expected result: ${expectedResult}`,
       "",
       "Stage output:",
       excerpt(text, 2_000),
     ].join("\n"),
+  };
+}
+
+type CommandResult = {
+  readonly command: string;
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+};
+
+function runCommand(args: readonly string[]): CommandResult {
+  const result = Bun.spawnSync({
+    cmd: [...args],
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  return {
+    command: args.join(" "),
+    exitCode: result.exitCode,
+    stdout: result.stdout.toString().trim(),
+    stderr: result.stderr.toString().trim(),
+  };
+}
+
+function commandSummary(result: CommandResult): string {
+  return [
+    `$ ${result.command}`,
+    `exitCode: ${result.exitCode}`,
+    result.stdout.length === 0 ? undefined : `stdout:\n${result.stdout}`,
+    result.stderr.length === 0 ? undefined : `stderr:\n${result.stderr}`,
+  ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function verifyReleasePrMerged(release: ValidatedRelease, prSelector: string): PullRequestMergeVerification {
+  const prView = runCommand([
+    "gh",
+    "pr",
+    "view",
+    prSelector,
+    "--json",
+    "state,mergedAt,mergeCommit,baseRefName,headRefName,headRefOid,url",
+  ]);
+
+  if (prView.exitCode !== 0) {
+    return {
+      ok: false,
+      summary: ["GitHub PR merge verification command failed.", commandSummary(prView)].join("\n\n"),
+    };
+  }
+
+  let parsed: JsonValue;
+  try {
+    parsed = JSON.parse(prView.stdout) as JsonValue;
+  } catch {
+    return {
+      ok: false,
+      summary: ["GitHub PR merge verification returned invalid JSON.", commandSummary(prView)].join("\n\n"),
+    };
+  }
+
+  const mergeVerification = verifyPullRequestMergedJson(parsed, release.branch);
+  if (!mergeVerification.ok) {
+    return {
+      ok: false,
+      prUrl: mergeVerification.prUrl,
+      summary: [mergeVerification.summary, commandSummary(prView)].join("\n\n"),
+    };
+  }
+
+  const branchCheck = runCommand(["git", "ls-remote", "--heads", "origin", release.branch]);
+  if (branchCheck.exitCode !== 0 || branchCheck.stdout.length === 0) {
+    return {
+      ok: false,
+      prUrl: mergeVerification.prUrl,
+      summary: [
+        "Remote release branch retention verification failed.",
+        "The PR is merged, but the release branch was not found on origin.",
+        commandSummary(prView),
+        commandSummary(branchCheck),
+      ].join("\n\n"),
+    };
+  }
+
+  return {
+    ok: true,
+    mergeCommitOid: mergeVerification.mergeCommitOid,
+    prUrl: mergeVerification.prUrl,
+    summary: [
+      mergeVerification.summary,
+      "Remote release branch is retained on origin.",
+      commandSummary(prView),
+      commandSummary(branchCheck),
+    ].join("\n\n"),
   };
 }
 
@@ -160,19 +258,26 @@ export default defineWorkflow("publish-release")
         "Required actions:",
         "1. Identify the PR for the release branch using `gh pr view` or the PR URL above.",
         "2. Wait for required checks using `gh pr checks --watch` or an equivalent `gh` workflow that returns a non-zero status on failures.",
-        "3. If any required check fails, stop and report MERGE_STATUS: blocked with the failed check names and URLs/log hints.",
+        "3. If any required check fails, stop and report the failed check names and URLs/log hints.",
         "4. When checks pass, merge the PR using the repository-supported method. Do not delete the release branch after merge.",
-        `5. Confirm the PR is merged with \`gh pr view --json state,mergedAt,mergeCommit,baseRefName,headRefName,headRefOid\`, then confirm the remote release branch still exists with \`git ls-remote --heads origin ${release.branch}\`.`,
+        "5. Summarize the merge attempt, commands run, merged commit/ref evidence if available, branch-retention evidence if available, and any blockers.",
         "",
         "Final response format:",
-        "- Include a standalone status line exactly `MERGE_STATUS: merged` or `MERGE_STATUS: blocked`; if you mention MERGE_STATUS more than once, the last standalone status line is authoritative.",
-        "- Only report `MERGE_STATUS: merged` after GitHub reports `state == MERGED`, `mergedAt` is non-null, and `mergeCommit` is present.",
+        "- Do not rely on an exact merge status marker; the workflow body will verify the GitHub PR merge state directly after this stage.",
         "- Include merged commit/ref evidence, branch-retention evidence, commands run, and any blockers.",
       ].join("\n"),
     });
 
-    if (!hasStatusMarker(merge.text, "MERGE_STATUS: merged")) {
-      return blockedOutput(release, "wait-for-release-ci-and-merge", "MERGE_STATUS: merged", merge.text);
+    const prSelector = firstPullRequestUrl(pr.text) ?? release.branch;
+    const mergeVerification = verifyReleasePrMerged(release, prSelector);
+
+    if (!mergeVerification.ok) {
+      return blockedOutput(
+        release,
+        "verify-release-pr-merged",
+        "GitHub PR state MERGED with mergedAt, mergeCommit.oid, matching base/head refs, and retained remote release branch",
+        [mergeVerification.summary, "", "Merge stage output:", excerpt(merge.text, 2_000)].join("\n"),
+      );
     }
 
     const publish = await ctx.task("tag-and-monitor-publish", {
@@ -184,9 +289,12 @@ export default defineWorkflow("publish-release")
         "Merge result:",
         excerpt(merge.text),
         "",
+        "Deterministic merge verification:",
+        excerpt(mergeVerification.summary),
+        "",
         "Required actions:",
         "1. Switch to `main` and run `git pull origin main`.",
-        `2. Confirm the merged release commit for ${release.version} is present on local main with command-backed evidence such as \`git rev-parse HEAD\` and \`git merge-base --is-ancestor <merge-commit> HEAD\`.`,
+        `2. Confirm the merged release commit for ${release.version} is present on local main with command-backed evidence such as \`git rev-parse HEAD\` and \`git merge-base --is-ancestor ${mergeVerification.mergeCommitOid} HEAD\`.`,
         `3. Confirm tag \`${release.version}\` does not already exist locally or on origin.`,
         `4. Run \`git tag ${release.version}\` and \`git push origin ${release.version}\`, then verify the pushed tag SHA.`,
         "5. Use `gh run list`, `gh run view`, and `gh run watch --exit-status` or equivalent GitHub CLI commands to find and monitor the publish/release workflow triggered by the tag.",
@@ -202,7 +310,7 @@ export default defineWorkflow("publish-release")
       return blockedOutput(release, "tag-and-monitor-publish", "PUBLISH_STATUS: completed", publish.text, "failed");
     }
 
-    const prUrl = firstPrUrl(pr.text);
+    const prUrl = firstPullRequestUrl(pr.text) ?? mergeVerification.prUrl ?? firstPrUrl(pr.text);
     const actionUrl = firstActionsUrl(publish.text);
     const summary = [
       `publish-release completed for ${release.kind} ${release.version}.`,
@@ -223,6 +331,9 @@ export default defineWorkflow("publish-release")
       "",
       "## wait-for-release-ci-and-merge",
       excerpt(merge.text, 800),
+      "",
+      "## deterministic-merge-verification",
+      excerpt(mergeVerification.summary, 800),
       "",
       "## tag-and-monitor-publish",
       excerpt(publish.text, 800),

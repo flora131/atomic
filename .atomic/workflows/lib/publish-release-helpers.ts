@@ -17,6 +17,22 @@ export type PublishReleaseOutput = {
   readonly summary: string;
 };
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+
+export type PullRequestMergeVerification =
+  | {
+      readonly ok: true;
+      readonly summary: string;
+      readonly mergeCommitOid: string;
+      readonly prUrl?: string;
+    }
+  | {
+      readonly ok: false;
+      readonly summary: string;
+      readonly prUrl?: string;
+    };
+
 export const releaseVersionPattern = /^\d+\.\d+\.\d+$/;
 export const prereleaseVersionPattern = /^\d+\.\d+\.\d+-alpha\.[1-9]\d*$/;
 
@@ -49,16 +65,16 @@ function urlsIn(text: string): readonly string[] {
   return (text.match(/https?:\/\/\S+/gu) ?? []).map(cleanUrl);
 }
 
-function firstUrl(text: string): string | undefined {
-  return urlsIn(text)[0];
+export function firstPullRequestUrl(text: string): string | undefined {
+  return urlsIn(text).find((url) => url.includes("/pull/"));
 }
 
 export function firstPrUrl(text: string): string | undefined {
-  return urlsIn(text).find((url) => url.includes("/pull/")) ?? firstUrl(text);
+  return firstPullRequestUrl(text);
 }
 
 export function firstActionsUrl(text: string): string | undefined {
-  return urlsIn(text).find((url) => url.includes("/actions/runs/")) ?? firstUrl(text);
+  return urlsIn(text).find((url) => url.includes("/actions/runs/"));
 }
 
 export function firstNonEmptyLine(text: string): string {
@@ -88,4 +104,65 @@ export function hasStatusMarker(text: string, successMarker: string): boolean {
   }
 
   return lastStatusForKey === successMarker;
+}
+
+function isJsonObject(value: JsonValue): value is { readonly [key: string]: JsonValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringField(object: { readonly [key: string]: JsonValue }, key: string): string | undefined {
+  const value = object[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+export function verifyPullRequestMergedJson(
+  value: JsonValue,
+  expectedHeadRefName: string,
+  expectedBaseRefName = "main",
+): PullRequestMergeVerification {
+  if (!isJsonObject(value)) {
+    return { ok: false, summary: "GitHub PR response was not a JSON object." };
+  }
+
+  const state = stringField(value, "state");
+  const mergedAt = stringField(value, "mergedAt");
+  const baseRefName = stringField(value, "baseRefName");
+  const headRefName = stringField(value, "headRefName");
+  const prUrl = stringField(value, "url");
+  const mergeCommit = value.mergeCommit;
+  const mergeCommitOid = isJsonObject(mergeCommit) ? stringField(mergeCommit, "oid") : undefined;
+  const failures: string[] = [];
+
+  if (state !== "MERGED") failures.push(`state was ${state ?? "missing"}, expected MERGED`);
+  if (mergedAt === undefined) failures.push("mergedAt was missing");
+  if (mergeCommitOid === undefined) failures.push("mergeCommit.oid was missing");
+  if (baseRefName !== expectedBaseRefName) {
+    failures.push(`baseRefName was ${baseRefName ?? "missing"}, expected ${expectedBaseRefName}`);
+  }
+  if (headRefName !== expectedHeadRefName) {
+    failures.push(`headRefName was ${headRefName ?? "missing"}, expected ${expectedHeadRefName}`);
+  }
+
+  if (failures.length > 0 || mergeCommitOid === undefined) {
+    return {
+      ok: false,
+      summary: ["GitHub PR is not verified as merged.", ...failures.map((failure) => `- ${failure}`)].join("\n"),
+      prUrl,
+    };
+  }
+
+  return {
+    ok: true,
+    summary: [
+      "GitHub PR is verified as merged.",
+      `state: ${state}`,
+      `mergedAt: ${mergedAt}`,
+      `mergeCommit.oid: ${mergeCommitOid}`,
+      `baseRefName: ${baseRefName}`,
+      `headRefName: ${headRefName}`,
+      prUrl === undefined ? undefined : `url: ${prUrl}`,
+    ].filter((line): line is string => line !== undefined).join("\n"),
+    mergeCommitOid,
+    prUrl,
+  };
 }

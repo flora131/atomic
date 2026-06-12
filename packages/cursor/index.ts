@@ -6,4 +6,4 @@ export { FileCursorCatalogCache, getDefaultCursorCatalogCachePath, parseCursorCa
 export { createEstimatedCursorCatalog, insertEffortBeforeCursorSuffix, mapCursorCatalogToProviderModels, parseCursorVariant, resolveCursorModelVariant } from "./src/model-mapper.js";
 export { CursorConversationStateStore } from "./src/conversation-state.js";
 export { CursorStreamAdapter, createCursorStreamAdapter } from "./src/stream.js";
-export { CursorMockRunStream, CursorMockTransport, Http2CursorAgentTransport, parseCursorModelListFromJsonText } from "./src/transport.js";
+export { Http2CursorAgentTransport } from "./src/transport.js";

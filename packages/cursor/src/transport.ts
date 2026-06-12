@@ -2,18 +2,13 @@ import { connect, constants, type ClientHttp2Session, type ClientHttp2Stream, ty
 import type { Context, Model, Api, ThinkingLevel } from "@earendil-works/pi-ai";
 import {
 	buildCursorRpcHeaders,
-	createCursorExperimentalProtocolError,
 	CURSOR_API_BASE_URL,
 	CURSOR_GET_USABLE_MODELS_PATH,
 	CURSOR_RUN_PATH,
 	parseJsonObject,
-	parseJsonValue,
-	readBooleanField,
-	readNumberField,
 	readStringField,
 	sanitizeDiagnosticText,
 	type JsonObject,
-	type JsonValue,
 } from "./config.js";
 import type { CursorUsableModel } from "./model-mapper.js";
 import { CursorProtobufProtocolCodec } from "./proto/protobuf-codec.js";
@@ -64,7 +59,6 @@ export type CursorServerMessage =
 	| { readonly type: "textDelta"; readonly text: string }
 	| { readonly type: "thinkingDelta"; readonly text: string }
 	| CursorToolCallMessage
-	| { readonly type: "toolCallBatch"; readonly toolCalls: readonly CursorToolCallMessage[] }
 	| { readonly type: "usage"; readonly kind?: "checkpoint"; readonly inputTokens?: number; readonly outputTokens?: number; readonly cacheReadTokens?: number; readonly cacheWriteTokens?: number; readonly usedTokens?: number; readonly maxTokens?: number }
 	| { readonly type: "usage"; readonly kind: "outputDelta"; readonly outputTokens: number }
 	| { readonly type: "nonMcpExec"; readonly fieldNumber: number; readonly execId?: string; readonly execNumericId?: number }
@@ -377,7 +371,7 @@ class Http2CursorRunStream implements CursorRunStream {
 					throwIfCursorEndStreamError(frame.data, this.secrets);
 					continue;
 				}
-				for (const message of coalesceToolCallsInFrame(this.codec.decodeRunFrame(frame))) {
+				for (const message of this.codec.decodeRunFrame(frame)) {
 					yield message;
 				}
 			}
@@ -618,217 +612,11 @@ class NodeHttp2CursorStreamHandle implements CursorHttp2StreamHandle {
 	}
 }
 
-const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-export class JsonCursorProtocolCodec implements CursorProtocolCodec {
-	encodeGetUsableModelsRequest(): Uint8Array {
-		return new Uint8Array();
-	}
-
-	decodeGetUsableModelsResponse(data: Uint8Array): readonly CursorUsableModel[] {
-		const json = parseJsonObject(textDecoder.decode(data));
-		if (!json) {
-			throw createCursorExperimentalProtocolError("Cursor protobuf GetUsableModels decoding is not available; inject a protobuf codec or use a JSON-compatible test codec.");
-		}
-		return parseCursorModelListFromJsonValue(json);
-	}
-
-	encodeRunRequest(request: CursorRunRequest): Uint8Array {
-		return textEncoder.encode(JSON.stringify({
-			modelId: request.resolvedModelId,
-			requestId: request.requestId,
-			conversationId: request.conversationId,
-			thinkingLevel: request.thinkingLevel,
-			messageCount: request.context.messages.length,
-		}));
-	}
-
-	decodeRunFrame(frame: CursorConnectFrame): readonly CursorServerMessage[] {
-		const parsed = parseJsonValue(textDecoder.decode(frame.data));
-		if (!parsed) {
-			throw createCursorExperimentalProtocolError("Cursor protobuf Run decoding is not available; inject a protobuf codec or use JSON-compatible test frames.");
-		}
-		return parseCursorServerMessagesFromJson(parsed);
-	}
-
-	encodeToolResult(result: CursorToolResultMessage): Uint8Array {
-		return textEncoder.encode(JSON.stringify({ type: "toolResult", ...result }));
-	}
-
-	encodeCancelRequest(): Uint8Array {
-		return textEncoder.encode(JSON.stringify({ type: "cancel" }));
-	}
-
-	encodeHeartbeatRequest(): Uint8Array {
-		return textEncoder.encode(JSON.stringify({ type: "heartbeat" }));
-	}
-}
-
-export class CursorMockRunStream implements CursorRunStream {
-	readonly id: string;
-	readonly messages: AsyncIterable<CursorServerMessage>;
-	#onCancel: () => void;
-	#onClose: () => void;
-	#cancelled = false;
-	#closed = false;
-	readonly writtenToolResults: CursorToolResultMessage[] = [];
-
-	constructor(id: string, messages: AsyncIterable<CursorServerMessage>, onCancel: () => void, onClose: () => void) {
-		this.id = id;
-		this.messages = messages;
-		this.#onCancel = onCancel;
-		this.#onClose = onClose;
-	}
-
-	get cancelled(): boolean {
-		return this.#cancelled;
-	}
-
-	get closed(): boolean {
-		return this.#closed;
-	}
-
-	async writeToolResult(result: CursorToolResultMessage): Promise<void> {
-		this.writtenToolResults.push(result);
-	}
-
-	async cancel(): Promise<void> {
-		if (this.#cancelled) return;
-		this.#cancelled = true;
-		this.#onCancel();
-		if (!this.#closed) {
-			this.#closed = true;
-			this.#onClose();
-		}
-	}
-
-	async close(): Promise<void> {
-		if (this.#closed) return;
-		this.#closed = true;
-		this.#onClose();
-	}
-}
-
-export interface CursorMockTransportRun {
-	readonly request: CursorRunRequest;
-	readonly stream: CursorMockRunStream;
-}
-
-export class CursorMockTransport implements CursorAgentTransport {
-	readonly runs: CursorMockTransportRun[] = [];
-	readonly modelRequests: string[] = [];
-	#models: readonly CursorUsableModel[];
-	#messages: readonly CursorServerMessage[];
-	#openStreams = 0;
-	#cancelledStreams = 0;
-	#closedStreams = 0;
-
-	constructor(options: { readonly models?: readonly CursorUsableModel[]; readonly messages?: readonly CursorServerMessage[] } = {}) {
-		this.#models = options.models ?? [];
-		this.#messages = options.messages ?? [];
-	}
-
-	setMessages(messages: readonly CursorServerMessage[]): void {
-		this.#messages = messages;
-	}
-
-	async getUsableModels(accessToken: string, requestId: string, signal?: AbortSignal): Promise<readonly CursorUsableModel[]> {
-		if (signal?.aborted) {
-			throw new Error("Cursor mock model discovery aborted");
-		}
-		this.modelRequests.push(`${requestId}:${accessToken.length}`);
-		return this.#models;
-	}
-
-	async run(request: CursorRunRequest): Promise<CursorRunStream> {
-		if (request.signal?.aborted) {
-			throw new Error("Cursor mock stream aborted");
-		}
-		this.#openStreams += 1;
-		const stream = new CursorMockRunStream(
-			request.requestId,
-			this.createMessageIterable(),
-			() => {
-				this.#cancelledStreams += 1;
-			},
-			() => {
-				this.#closedStreams += 1;
-				this.#openStreams = Math.max(0, this.#openStreams - 1);
-			},
-		);
-		this.runs.push({ request, stream });
-		return stream;
-	}
-
-	async dispose(): Promise<void> {
-		for (const run of this.runs) {
-			await run.stream.cancel();
-		}
-	}
-
-	getLifecycleSnapshot(): CursorTransportLifecycleSnapshot {
-		return { openStreams: this.#openStreams, cancelledStreams: this.#cancelledStreams, closedStreams: this.#closedStreams };
-	}
-
-	private async *createMessageIterable(): AsyncIterable<CursorServerMessage> {
-		for (const message of coalesceToolCallsInFrame(this.#messages)) {
-			yield message;
-		}
-	}
-}
-
-export function parseCursorModelFromJson(value: JsonObject): CursorUsableModel | undefined {
-	const id = readStringField(value, "id") ?? readStringField(value, "modelId") ?? readStringField(value, "name");
-	if (!id) return undefined;
-	return {
-		id,
-		name: readStringField(value, "name"),
-		displayName: readStringField(value, "displayName") ?? readStringField(value, "display_name"),
-		contextWindow: readNumberField(value, "contextWindow") ?? readNumberField(value, "context_window"),
-		maxTokens: readNumberField(value, "maxTokens") ?? readNumberField(value, "max_tokens"),
-		supportsReasoning: readBooleanField(value, "supportsReasoning") ?? readBooleanField(value, "supports_reasoning"),
-		supportsThinking: readBooleanField(value, "supportsThinking") ?? readBooleanField(value, "supports_thinking"),
-	};
-}
 
 export function sanitizeCursorTransportError(error: Error, secrets: readonly string[] = []): Error {
 	const message = sanitizeDiagnosticText(error.message, secrets);
 	return error instanceof CursorTransportError ? new CursorTransportError(error.code, message) : new CursorTransportError("ProtocolError", message);
-}
-
-export function parseCursorModelListFromJsonText(text: string): readonly CursorUsableModel[] {
-	const parsed = parseJsonObject(text);
-	return parsed ? parseCursorModelListFromJsonValue(parsed) : [];
-}
-
-function parseCursorModelListFromJsonValue(value: JsonObject): readonly CursorUsableModel[] {
-	const models = value.models;
-	if (!Array.isArray(models)) return [];
-	return models.flatMap((item) => {
-		if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
-		const model = parseCursorModelFromJson(item as JsonObject);
-		return model ? [model] : [];
-	});
-}
-
-function parseCursorServerMessagesFromJson(value: JsonValue): readonly CursorServerMessage[] {
-	const items = Array.isArray(value) ? value : [value];
-	return items.flatMap((item): CursorServerMessage[] => {
-		if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
-		const object = item as JsonObject;
-		const type = readStringField(object, "type");
-		if (type === "textDelta") return [{ type, text: readStringField(object, "text") ?? "" }];
-		if (type === "thinkingDelta") return [{ type, text: readStringField(object, "text") ?? "" }];
-		if (type === "toolCall") return [{ type, id: readStringField(object, "id") ?? "cursor-tool", name: readStringField(object, "name") ?? "cursor_tool", argumentsJson: readStringField(object, "argumentsJson") ?? "{}", execId: readStringField(object, "execId"), execNumericId: readNumberField(object, "execNumericId") }];
-		if (type === "usage") return [{ type, kind: "checkpoint", inputTokens: readNumberField(object, "inputTokens"), outputTokens: readNumberField(object, "outputTokens"), cacheReadTokens: readNumberField(object, "cacheReadTokens"), cacheWriteTokens: readNumberField(object, "cacheWriteTokens"), usedTokens: readNumberField(object, "usedTokens"), maxTokens: readNumberField(object, "maxTokens") }];
-		if (type === "done") return [{ type, reason: parseDoneReason(readStringField(object, "reason")) }];
-		return [];
-	});
-}
-
-function parseDoneReason(value: string | undefined): CursorDoneReason {
-	return value === "length" || value === "toolUse" ? value : "stop";
 }
 
 function unwrapUnaryBody(data: Uint8Array): Uint8Array {
@@ -894,24 +682,5 @@ function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
 		output.set(part, offset);
 		offset += part.length;
 	}
-	return output;
-}
-
-function coalesceToolCallsInFrame(messages: readonly CursorServerMessage[]): readonly CursorServerMessage[] {
-	const output: CursorServerMessage[] = [];
-	let pendingToolCalls: CursorToolCallMessage[] = [];
-	const flushPendingToolCalls = (): void => {
-		if (pendingToolCalls.length === 1) output.push(pendingToolCalls[0]!);
-		else if (pendingToolCalls.length > 1) output.push({ type: "toolCallBatch", toolCalls: [...pendingToolCalls] });
-		pendingToolCalls = [];
-	};
-	for (const message of messages) {
-		if (message.type === "toolCall") pendingToolCalls.push(message);
-		else {
-			flushPendingToolCalls();
-			output.push(message);
-		}
-	}
-	flushPendingToolCalls();
 	return output;
 }

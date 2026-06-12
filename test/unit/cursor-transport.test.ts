@@ -15,7 +15,7 @@ import {
 	type CursorRunRequest,
 	type CursorServerMessage,
 } from "../../packages/cursor/src/transport.js";
-import { __cursorProtoTest } from "../../packages/cursor/src/proto/protobuf-codec.js";
+import { cursorProtoTest } from "./cursor-proto-test-helpers.js";
 
 class FakeStreamHandle implements CursorHttp2StreamHandle {
 	readonly writes: Uint8Array[] = [];
@@ -140,31 +140,31 @@ const contextWithUserMessage: Context = {
 };
 
 function valueString(value: string): Uint8Array {
-	return __cursorProtoTest.encodeStringField(3, value);
+	return cursorProtoTest.encodeStringField(3, value);
 }
 
 function valueNumber(value: number): Uint8Array {
-	return __cursorProtoTest.encodeDoubleField(2, value);
+	return cursorProtoTest.encodeDoubleField(2, value);
 }
 
 function valueBool(value: boolean): Uint8Array {
-	return __cursorProtoTest.encodeVarintField(4, value ? 1n : 0n);
+	return cursorProtoTest.encodeVarintField(4, value ? 1n : 0n);
 }
 
 function valueNull(): Uint8Array {
-	return __cursorProtoTest.encodeVarintField(1, 0n);
+	return cursorProtoTest.encodeVarintField(1, 0n);
 }
 
 function valueStruct(entries: readonly [string, Uint8Array][]): Uint8Array {
-	return __cursorProtoTest.encodeMessageField(5, __cursorProtoTest.concatBytes(...entries.map(([key, value]) => __cursorProtoTest.encodeMessageField(1, __cursorProtoTest.concatBytes(__cursorProtoTest.encodeStringField(1, key), __cursorProtoTest.encodeMessageField(2, value))))));
+	return cursorProtoTest.encodeMessageField(5, cursorProtoTest.concatBytes(...entries.map(([key, value]) => cursorProtoTest.encodeMessageField(1, cursorProtoTest.concatBytes(cursorProtoTest.encodeStringField(1, key), cursorProtoTest.encodeMessageField(2, value))))));
 }
 
 function valueList(values: readonly Uint8Array[]): Uint8Array {
-	return __cursorProtoTest.encodeMessageField(6, __cursorProtoTest.concatBytes(...values.map((value) => __cursorProtoTest.encodeMessageField(1, value))));
+	return cursorProtoTest.encodeMessageField(6, cursorProtoTest.concatBytes(...values.map((value) => cursorProtoTest.encodeMessageField(1, value))));
 }
 
 function mcpArgEntry(key: string, value: Uint8Array): Uint8Array {
-	return __cursorProtoTest.concatBytes(__cursorProtoTest.encodeStringField(1, key), __cursorProtoTest.encodeMessageField(2, value));
+	return cursorProtoTest.concatBytes(cursorProtoTest.encodeStringField(1, key), cursorProtoTest.encodeMessageField(2, value));
 }
 
 describe("Cursor HTTP2 transport boundary", () => {
@@ -196,28 +196,28 @@ describe("Cursor HTTP2 transport boundary", () => {
 			assert.ok(decodedRunText.includes(expected), `encoded run omitted ${expected}`);
 		}
 		assert.equal(decodedRunText.includes("toolResult:tool-1"), false);
-		const runRequest = __cursorProtoTest.readFields(encodedRun)[0]?.value;
+		const runRequest = cursorProtoTest.readFields(encodedRun)[0]?.value;
 		assert.ok(runRequest instanceof Uint8Array);
-		const conversationState = __cursorProtoTest.readFields(runRequest).find((field) => field.fieldNumber === 1)?.value;
+		const conversationState = cursorProtoTest.readFields(runRequest).find((field) => field.fieldNumber === 1)?.value;
 		assert.ok(conversationState instanceof Uint8Array);
-		const turnWrapper = __cursorProtoTest.readFields(conversationState).find((field) => field.fieldNumber === 8)?.value;
+		const turnWrapper = cursorProtoTest.readFields(conversationState).find((field) => field.fieldNumber === 8)?.value;
 		assert.ok(turnWrapper instanceof Uint8Array);
-		const agentTurn = __cursorProtoTest.readFields(turnWrapper).find((field) => field.fieldNumber === 1)?.value;
+		const agentTurn = cursorProtoTest.readFields(turnWrapper).find((field) => field.fieldNumber === 1)?.value;
 		assert.ok(agentTurn instanceof Uint8Array);
-		const toolStep = __cursorProtoTest.readFields(agentTurn)
+		const toolStep = cursorProtoTest.readFields(agentTurn)
 			.filter((field) => field.fieldNumber === 2)
 			.map((field) => field.value)
 			.filter((value): value is Uint8Array => value instanceof Uint8Array)
-			.map((value) => __cursorProtoTest.readFields(value).find((field) => field.fieldNumber === 2)?.value)
+			.map((value) => cursorProtoTest.readFields(value).find((field) => field.fieldNumber === 2)?.value)
 			.filter((value): value is Uint8Array => value instanceof Uint8Array)
-			.map((value) => __cursorProtoTest.readFields(value).find((field) => field.fieldNumber === 15)?.value)
-			.find((value): value is Uint8Array => value instanceof Uint8Array && __cursorProtoTest.decodeString(value).includes("tool result text"));
+			.map((value) => cursorProtoTest.readFields(value).find((field) => field.fieldNumber === 15)?.value)
+			.find((value): value is Uint8Array => value instanceof Uint8Array && cursorProtoTest.decodeString(value).includes("tool result text"));
 		assert.ok(toolStep instanceof Uint8Array);
-		const toolFields = __cursorProtoTest.readFields(toolStep);
+		const toolFields = cursorProtoTest.readFields(toolStep);
 		assert.ok(toolFields.some((field) => field.fieldNumber === 1));
 		assert.ok(toolFields.some((field) => field.fieldNumber === 2));
-		const textDelta = __cursorProtoTest.encodeMessageField(1, __cursorProtoTest.encodeStringField(1, "hello"));
-		const interactionUpdate = __cursorProtoTest.encodeMessageField(1, textDelta);
+		const textDelta = cursorProtoTest.encodeMessageField(1, cursorProtoTest.encodeStringField(1, "hello"));
+		const interactionUpdate = cursorProtoTest.encodeMessageField(1, textDelta);
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: interactionUpdate, endStream: false }), [{ type: "textDelta", text: "hello" }]);
 	});
 
@@ -246,12 +246,12 @@ describe("Cursor HTTP2 transport boundary", () => {
 	test("protobuf codec uses stable conversation ids separately from request ids", () => {
 		const codec = new CursorProtobufProtocolCodec();
 		const encodedRun = codec.encodeRunRequest({ accessToken: "secret", requestId: "request-a", conversationId: "session-stable", model, resolvedModelId: "composer-2", context });
-		const top = __cursorProtoTest.readFields(encodedRun);
+		const top = cursorProtoTest.readFields(encodedRun);
 		const runRequest = top[0]?.value;
 		assert.ok(runRequest instanceof Uint8Array);
-		const conversationField = __cursorProtoTest.readFields(runRequest).find((field) => field.fieldNumber === 5)?.value;
+		const conversationField = cursorProtoTest.readFields(runRequest).find((field) => field.fieldNumber === 5)?.value;
 		assert.ok(conversationField instanceof Uint8Array);
-		assert.equal(__cursorProtoTest.decodeString(conversationField), "session-stable");
+		assert.equal(cursorProtoTest.decodeString(conversationField), "session-stable");
 	});
 
 	test("protobuf codec wraps MCP tool definitions with Cursor schema field numbers", () => {
@@ -269,37 +269,37 @@ describe("Cursor HTTP2 transport boundary", () => {
 				],
 			},
 		});
-		const top = __cursorProtoTest.readFields(encodedRun);
+		const top = cursorProtoTest.readFields(encodedRun);
 		assert.equal(top.length, 1);
 		const runRequest = top[0]?.value;
 		assert.ok(runRequest instanceof Uint8Array);
-		const runFields = __cursorProtoTest.readFields(runRequest);
+		const runFields = cursorProtoTest.readFields(runRequest);
 		const mcpToolFields = runFields.filter((field) => field.fieldNumber === 4);
 		assert.equal(mcpToolFields.length, 1);
 		const wrapper = mcpToolFields[0]?.value;
 		assert.ok(wrapper instanceof Uint8Array);
-		const definitions = __cursorProtoTest.readFields(wrapper).filter((field) => field.fieldNumber === 1);
+		const definitions = cursorProtoTest.readFields(wrapper).filter((field) => field.fieldNumber === 1);
 		assert.equal(definitions.length, 2);
 		const firstDefinition = definitions[0]?.value;
 		assert.ok(firstDefinition instanceof Uint8Array);
-		const definitionFields = new Map(__cursorProtoTest.readFields(firstDefinition).map((field) => [field.fieldNumber, field.value]));
-		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(1) as Uint8Array), "Read");
-		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(2) as Uint8Array), "Read a file");
-		assert.deepEqual(JSON.parse(__cursorProtoTest.decodeString(definitionFields.get(3) as Uint8Array)), { type: "object", properties: { path: { type: "string" } } });
-		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(4) as Uint8Array), "atomic");
-		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(5) as Uint8Array), "Read");
+		const definitionFields = new Map(cursorProtoTest.readFields(firstDefinition).map((field) => [field.fieldNumber, field.value]));
+		assert.equal(cursorProtoTest.decodeString(definitionFields.get(1) as Uint8Array), "Read");
+		assert.equal(cursorProtoTest.decodeString(definitionFields.get(2) as Uint8Array), "Read a file");
+		assert.deepEqual(JSON.parse(cursorProtoTest.decodeString(definitionFields.get(3) as Uint8Array)), { type: "object", properties: { path: { type: "string" } } });
+		assert.equal(cursorProtoTest.decodeString(definitionFields.get(4) as Uint8Array), "atomic");
+		assert.equal(cursorProtoTest.decodeString(definitionFields.get(5) as Uint8Array), "Read");
 	});
 
 	test("protobuf codec encodes tool results as exec client MCP results", () => {
 		const codec = new CursorProtobufProtocolCodec();
 		const encoded = codec.encodeToolResult({ toolCallId: "tool-1", toolName: "Read", text: "file contents", isError: false, execId: "exec-1", execNumericId: 7 });
-		const agentFields = __cursorProtoTest.readFields(encoded);
+		const agentFields = cursorProtoTest.readFields(encoded);
 		assert.equal(agentFields[0]?.fieldNumber, 2);
 		const execMessage = agentFields[0]?.value;
 		assert.ok(execMessage instanceof Uint8Array);
-		const execFields = __cursorProtoTest.readFields(execMessage);
+		const execFields = cursorProtoTest.readFields(execMessage);
 		assert.equal(execFields.find((field) => field.fieldNumber === 1)?.value, 7n);
-		assert.equal(__cursorProtoTest.decodeString(execFields.find((field) => field.fieldNumber === 15)?.value as Uint8Array), "exec-1");
+		assert.equal(cursorProtoTest.decodeString(execFields.find((field) => field.fieldNumber === 15)?.value as Uint8Array), "exec-1");
 		const result = execFields.find((field) => field.fieldNumber === 11)?.value;
 		assert.ok(result instanceof Uint8Array);
 		assert.equal(new TextDecoder().decode(encoded).includes("toolResult:tool-1"), false);
@@ -308,35 +308,35 @@ describe("Cursor HTTP2 transport boundary", () => {
 
 	test("protobuf codec decodes checkpoint token details without treating max tokens as output", () => {
 		const codec = new CursorProtobufProtocolCodec();
-		const tokenDetails = __cursorProtoTest.concatBytes(__cursorProtoTest.encodeVarintField(1, 120n), __cursorProtoTest.encodeVarintField(2, 2000n));
-		const checkpoint = __cursorProtoTest.concatBytes(
-			__cursorProtoTest.encodeMessageField(1, __cursorProtoTest.encodeStringField(1, "prompt json should be ignored")),
-			__cursorProtoTest.encodeMessageField(5, tokenDetails),
+		const tokenDetails = cursorProtoTest.concatBytes(cursorProtoTest.encodeVarintField(1, 120n), cursorProtoTest.encodeVarintField(2, 2000n));
+		const checkpoint = cursorProtoTest.concatBytes(
+			cursorProtoTest.encodeMessageField(1, cursorProtoTest.encodeStringField(1, "prompt json should be ignored")),
+			cursorProtoTest.encodeMessageField(5, tokenDetails),
 		);
-		const agentMessage = __cursorProtoTest.encodeMessageField(3, checkpoint);
+		const agentMessage = cursorProtoTest.encodeMessageField(3, checkpoint);
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: agentMessage, endStream: false }), [{ type: "usage", kind: "checkpoint", usedTokens: 120, maxTokens: 2000 }]);
 	});
 
 	test("protobuf codec decodes exec server MCP args as tool calls", () => {
 		const codec = new CursorProtobufProtocolCodec();
-		const mcpArgs = __cursorProtoTest.concatBytes(
-			__cursorProtoTest.encodeStringField(1, "search"),
-			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("query", valueString("hello"))),
-			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("count", valueNumber(42.5))),
-			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("enabled", valueBool(true))),
-			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("nothing", valueNull())),
-			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("nested", valueStruct([["key", valueString("value")]]))),
-			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("items", valueList([valueString("a"), valueNumber(2)]))),
-			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("path", new TextEncoder().encode("README.md"))),
-			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("options", new TextEncoder().encode("{\"limit\":3}"))),
-			__cursorProtoTest.encodeStringField(5, "search"),
+		const mcpArgs = cursorProtoTest.concatBytes(
+			cursorProtoTest.encodeStringField(1, "search"),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("query", valueString("hello"))),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("count", valueNumber(42.5))),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("enabled", valueBool(true))),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("nothing", valueNull())),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("nested", valueStruct([["key", valueString("value")]]))),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("items", valueList([valueString("a"), valueNumber(2)]))),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("path", new TextEncoder().encode("README.md"))),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("options", new TextEncoder().encode("{\"limit\":3}"))),
+			cursorProtoTest.encodeStringField(5, "search"),
 		);
-		const execServer = __cursorProtoTest.concatBytes(
-			__cursorProtoTest.encodeMessageField(11, mcpArgs),
-			__cursorProtoTest.encodeVarintField(1, 99n),
-			__cursorProtoTest.encodeStringField(15, "exec-99"),
+		const execServer = cursorProtoTest.concatBytes(
+			cursorProtoTest.encodeMessageField(11, mcpArgs),
+			cursorProtoTest.encodeVarintField(1, 99n),
+			cursorProtoTest.encodeStringField(15, "exec-99"),
 		);
-		const agentMessage = __cursorProtoTest.encodeMessageField(2, execServer);
+		const agentMessage = cursorProtoTest.encodeMessageField(2, execServer);
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: agentMessage, endStream: false }), [{
 			type: "toolCall",
 			id: "exec-99",
@@ -349,22 +349,22 @@ describe("Cursor HTTP2 transport boundary", () => {
 
 	test("protobuf codec rejects invalid raw MCP argument bytes", () => {
 		const codec = new CursorProtobufProtocolCodec();
-		const mcpArgs = __cursorProtoTest.concatBytes(
-			__cursorProtoTest.encodeStringField(1, "search"),
-			__cursorProtoTest.encodeMessageField(2, mcpArgEntry("bad", new Uint8Array([0xff]))),
-			__cursorProtoTest.encodeStringField(5, "search"),
+		const mcpArgs = cursorProtoTest.concatBytes(
+			cursorProtoTest.encodeStringField(1, "search"),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("bad", new Uint8Array([0xff]))),
+			cursorProtoTest.encodeStringField(5, "search"),
 		);
-		const execServer = __cursorProtoTest.encodeMessageField(11, mcpArgs);
-		const agentMessage = __cursorProtoTest.encodeMessageField(2, execServer);
+		const execServer = cursorProtoTest.encodeMessageField(11, mcpArgs);
+		const agentMessage = cursorProtoTest.encodeMessageField(2, execServer);
 		assert.throws(() => codec.decodeRunFrame({ flags: 0, data: agentMessage, endStream: false }), /neither protobuf Value nor valid UTF-8/u);
 	});
 
 	test("protobuf codec decodes non-MCP exec server messages as safe notifications", () => {
 		const codec = new CursorProtobufProtocolCodec();
-		const requestContextExec = __cursorProtoTest.encodeMessageField(2, __cursorProtoTest.concatBytes(
-			__cursorProtoTest.encodeVarintField(1, 55n),
-			__cursorProtoTest.encodeMessageField(10, new Uint8Array()),
-			__cursorProtoTest.encodeStringField(15, "exec-context"),
+		const requestContextExec = cursorProtoTest.encodeMessageField(2, cursorProtoTest.concatBytes(
+			cursorProtoTest.encodeVarintField(1, 55n),
+			cursorProtoTest.encodeMessageField(10, new Uint8Array()),
+			cursorProtoTest.encodeStringField(15, "exec-context"),
 		));
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: requestContextExec, endStream: false }), [{
 			type: "nonMcpExec",
@@ -373,18 +373,18 @@ describe("Cursor HTTP2 transport boundary", () => {
 			execNumericId: 55,
 		}]);
 
-		const nativeExec = __cursorProtoTest.encodeMessageField(2, __cursorProtoTest.encodeStringField(2, "native shell"));
+		const nativeExec = cursorProtoTest.encodeMessageField(2, cursorProtoTest.encodeStringField(2, "native shell"));
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: nativeExec, endStream: false }), [{ type: "nonMcpExec", fieldNumber: 2 }]);
 	});
 
 	test("production transport defaults to the isolated protobuf codec", async () => {
 		const client = new FakeHttp2Client();
-		const modelMessage = __cursorProtoTest.concatBytes(
-			__cursorProtoTest.encodeStringField(1, "composer-2"),
-			__cursorProtoTest.encodeStringField(4, "Composer 2"),
-			__cursorProtoTest.encodeMessageField(2, new Uint8Array()),
+		const modelMessage = cursorProtoTest.concatBytes(
+			cursorProtoTest.encodeStringField(1, "composer-2"),
+			cursorProtoTest.encodeStringField(4, "Composer 2"),
+			cursorProtoTest.encodeMessageField(2, new Uint8Array()),
 		);
-		client.unaryBody = __cursorProtoTest.encodeMessageField(1, modelMessage);
+		client.unaryBody = cursorProtoTest.encodeMessageField(1, modelMessage);
 		const transport = new Http2CursorAgentTransport({ client });
 		const models = await transport.getUsableModels("secret-token", "request-proto");
 		assert.equal(models[0]?.id, "composer-2");

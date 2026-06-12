@@ -9,7 +9,7 @@ import { FileCursorCatalogCache, type CursorCatalogCache } from "../../packages/
 import type { CursorModelCatalog } from "../../packages/cursor/src/model-mapper.js";
 import { CursorModelDiscoveryError, type CursorModelDiscoveryService } from "../../packages/cursor/src/models.js";
 import { registerCursorProvider } from "../../packages/cursor/src/provider.js";
-import { CursorMockTransport } from "../../packages/cursor/src/transport.js";
+import { CursorMockTransport } from "./cursor-test-helpers.js";
 
 type CursorHost = Parameters<typeof registerCursorProvider>[0];
 type CursorConfig = Parameters<CursorHost["registerProvider"]>[1];

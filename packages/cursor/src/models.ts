@@ -52,4 +52,3 @@ export class CursorModelDiscoveryService {
 		return createEstimatedCursorCatalog(this.#now());
 	}
 }
-

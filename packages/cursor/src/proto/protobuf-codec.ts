@@ -471,12 +471,6 @@ function encodeVarintField(fieldNumber: number, value: bigint): Uint8Array {
 	return concatBytes(encodeVarint(BigInt((fieldNumber << 3) | WIRE_VARINT)), encodeVarint(value));
 }
 
-function encodeDoubleField(fieldNumber: number, value: number): Uint8Array {
-	const bytes = new Uint8Array(8);
-	new DataView(bytes.buffer).setFloat64(0, value, true);
-	return concatBytes(encodeVarint(BigInt((fieldNumber << 3) | WIRE_FIXED64)), bytes);
-}
-
 function encodeVarint(value: bigint): Uint8Array {
 	const bytes: number[] = [];
 	let current = value;
@@ -502,5 +496,3 @@ function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
 function decodeString(data: Uint8Array): string {
 	return textDecoder.decode(data);
 }
-
-export const __cursorProtoTest = { encodeStringField, encodeMessageField, encodeVarintField, encodeDoubleField, concatBytes, readFields, decodeString };

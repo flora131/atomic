@@ -195,7 +195,7 @@ export class CursorAuthService {
 		loginUrl.searchParams.set("redirectTarget", "cli");
 		callbacks.onAuth({
 			url: loginUrl.toString(),
-			instructions: "Complete the experimental Cursor login in your browser.",
+			instructions: "Complete the experimental Cursor login in your browser. Atomic uses Cursor's private, undocumented API; this may conflict with Cursor's terms, can break without notice, and could affect your Cursor account.",
 		});
 		callbacks.onProgress?.("Waiting for Cursor browser login...");
 

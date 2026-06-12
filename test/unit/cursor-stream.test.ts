@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import type { Api, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
 import { CursorStreamAdapter } from "../../packages/cursor/src/stream.js";
 import {
-	CursorMockRunStream,
-	CursorMockTransport,
 	type CursorAgentTransport,
 	type CursorRunRequest,
 	type CursorRunStream,
@@ -12,6 +10,7 @@ import {
 	type CursorToolResultMessage,
 	type CursorWriteOptions,
 } from "../../packages/cursor/src/transport.js";
+import { CursorMockRunStream, CursorMockTransport } from "./cursor-test-helpers.js";
 import type { CursorUsableModel } from "../../packages/cursor/src/model-mapper.js";
 
 function model(): Model<Api> {
@@ -141,9 +140,9 @@ describe("CursorStreamAdapter", () => {
 		assert.equal(done?.type, "done");
 		if (done?.type === "done") {
 			assert.equal(done.reason, "toolUse");
-			assert.equal(done.message.usage.input, 0);
-			assert.equal(done.message.usage.output, 0);
-			assert.equal(done.message.usage.totalTokens, 0);
+			assert.equal(done.message.usage.input, 10);
+			assert.equal(done.message.usage.output, 5);
+			assert.equal(done.message.usage.totalTokens, 15);
 		}
 		assert.equal(transport.runs[0]?.request.resolvedModelId, "composer-2-high");
 		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 1, cancelledStreams: 0, closedStreams: 0 });
@@ -209,10 +208,11 @@ describe("CursorStreamAdapter", () => {
 		assert.deepEqual(adapter.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 0, closedStreams: 1, activeTurns: 0 });
 	});
 
-	test("pauses with every tool call emitted in the same Cursor frame", async () => {
+	test("pauses with every tool call emitted across separate Cursor messages", async () => {
 		const transport = new CursorMockTransport({ messages: [
 			{ type: "toolCall", id: "tool-1", name: "Read", argumentsJson: "{\"path\":\"README.md\"}", execId: "exec-1", execNumericId: 7 },
 			{ type: "toolCall", id: "tool-2", name: "List", argumentsJson: "{\"path\":\"packages\"}", execId: "exec-2", execNumericId: 8 },
+			{ type: "done", reason: "toolUse" },
 			{ type: "textDelta", text: "after tools" },
 			{ type: "done", reason: "stop" },
 		] });
@@ -252,6 +252,7 @@ describe("CursorStreamAdapter", () => {
 	test("resumes a paused Cursor tool turn with trailing tool results", async () => {
 		const transport = new CursorMockTransport({ messages: [
 			{ type: "toolCall", id: "tool-1", name: "Read", argumentsJson: "{\"path\":\"README.md\"}", execId: "exec-1", execNumericId: 7 },
+			{ type: "done", reason: "toolUse" },
 			{ type: "textDelta", text: "done" },
 			{ type: "done", reason: "stop" },
 		] });
@@ -418,6 +419,7 @@ describe("CursorStreamAdapter", () => {
 			}
 			private async *createMessages(): AsyncIterable<CursorServerMessage> {
 				yield { type: "toolCall", id: "tool-stalled", name: "Read", argumentsJson: "{\"path\":\"README.md\"}" };
+				yield { type: "done", reason: "toolUse" };
 				await new Promise<void>(() => {});
 			}
 		}
@@ -503,6 +505,7 @@ describe("CursorStreamAdapter", () => {
 			}
 			private async *createMessages(): AsyncIterable<CursorServerMessage> {
 				yield { type: "toolCall", id: "tool-deadline", name: "Read", argumentsJson: "{\"path\":\"README.md\"}" };
+				yield { type: "done", reason: "toolUse" };
 				await new Promise<void>(() => {});
 			}
 		}

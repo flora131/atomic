@@ -12,7 +12,7 @@ Known private endpoints (adapted from the MIT-licensed `ndraiman/pi-cursor-provi
 
 Centralized headers live in `src/config.ts`, including `x-cursor-client-version: cli-2026.01.09-231024f`, `x-cursor-client-type: cli`, and `x-ghost-mode: true`. `src/transport.ts` is the only module that should construct Cursor RPC headers or HTTP/2 Connect frames.
 
-`src/transport.ts` now exposes an injectable HTTP/2 client and protocol codec seam plus buffered Connect frame helpers. Production defaults use `CursorProtobufProtocolCodec`; `JsonCursorProtocolCodec` is retained only for explicit test fixtures. Run requests write the initial Connect frame before response headers, and stream handles install response/data/error/close listeners eagerly to avoid missed terminal events.
+`src/transport.ts` exposes an injectable HTTP/2 client and protocol codec seam plus buffered Connect frame helpers. Production defaults use `CursorProtobufProtocolCodec`; unit-test transport doubles live under `test/unit/` so the bundled provider does not export mock protocol surfaces. Run requests write the initial Connect frame before response headers, and stream handles install response/data/error/close listeners eagerly to avoid missed terminal events.
 
 Field provenance (from `ndraiman/pi-cursor-provider` vendored `proto/agent_pb.ts` commit `82fc4e7`, itself derived from MIT `opencode-cursor`):
 

@@ -84,6 +84,7 @@ export class CursorStreamAdapter {
 		let thinkingIndex: number | undefined;
 		let terminalEventSent = false;
 		let sawToolCall = false;
+		const pendingToolCalls: CursorToolCallMessage[] = [];
 		const effectiveTimeoutMs = options?.timeoutMs ?? this.#runtime.streamReadTimeoutMs;
 
 		try {
@@ -132,29 +133,28 @@ export class CursorStreamAdapter {
 					textIndex = appendTextDelta(stream, output, textIndex, message.text);
 				} else if (message.type === "thinkingDelta") {
 					thinkingIndex = appendThinkingDelta(stream, output, thinkingIndex, message.text);
-				} else if (message.type === "toolCall" || message.type === "toolCallBatch") {
-					const toolCalls: readonly CursorToolCallMessage[] = message.type === "toolCall" ? [message] : message.toolCalls;
-					const toolConversationId = requireCursorToolSessionId(options.sessionId, "pause a Cursor tool turn");
+				} else if (message.type === "toolCall") {
+					conversationId = requireCursorToolSessionId(options.sessionId, "pause a Cursor tool turn");
 					sawToolCall = true;
-					for (const toolCall of toolCalls) {
-						appendToolCall(stream, output, toolCall.id, toolCall.name, toolCall.argumentsJson);
-					}
-					closeOpenContent(stream, output, textIndex, thinkingIndex);
-					this.#runtime.conversationState.pauseTurnForTools(toolConversationId, runStream, toolCalls, { signal: options?.signal, idleTimeoutMs: this.#runtime.pausedTurnIdleTimeoutMs });
-					conversationId = toolConversationId;
-					output.stopReason = "toolUse";
-					stream.push({ type: "done", reason: "toolUse", message: output });
-					terminalEventSent = true;
-					runStream = undefined;
-					break;
+					pendingToolCalls.push(message);
+					appendToolCall(stream, output, message.id, message.name, message.argumentsJson);
 				} else if (message.type === "usage") {
 					updateUsage(output, model, message);
 				} else if (message.type === "nonMcpExec") {
 					continue;
 				} else {
 					closeOpenContent(stream, output, textIndex, thinkingIndex);
-					output.stopReason = message.reason;
-					stream.push({ type: "done", reason: message.reason, message: output });
+					if (pendingToolCalls.length > 0) {
+						const toolConversationId = requireCursorToolSessionId(options.sessionId, "pause a Cursor tool turn");
+						this.#runtime.conversationState.pauseTurnForTools(toolConversationId, runStream, pendingToolCalls, { signal: options?.signal, idleTimeoutMs: this.#runtime.pausedTurnIdleTimeoutMs });
+						conversationId = toolConversationId;
+						output.stopReason = "toolUse";
+						stream.push({ type: "done", reason: "toolUse", message: output });
+						runStream = undefined;
+					} else {
+						output.stopReason = message.reason;
+						stream.push({ type: "done", reason: message.reason, message: output });
+					}
 					terminalEventSent = true;
 					break;
 				}
@@ -162,8 +162,17 @@ export class CursorStreamAdapter {
 
 			if (!terminalEventSent) {
 				closeOpenContent(stream, output, textIndex, thinkingIndex);
-				output.stopReason = sawToolCall ? "toolUse" : "stop";
-				stream.push({ type: "done", reason: output.stopReason, message: output });
+				if (pendingToolCalls.length > 0 && runStream) {
+					const toolConversationId = requireCursorToolSessionId(options.sessionId, "pause a Cursor tool turn");
+					this.#runtime.conversationState.pauseTurnForTools(toolConversationId, runStream, pendingToolCalls, { signal: options?.signal, idleTimeoutMs: this.#runtime.pausedTurnIdleTimeoutMs });
+					conversationId = toolConversationId;
+					output.stopReason = "toolUse";
+					stream.push({ type: "done", reason: "toolUse", message: output });
+					runStream = undefined;
+				} else {
+					output.stopReason = sawToolCall ? "toolUse" : "stop";
+					stream.push({ type: "done", reason: output.stopReason, message: output });
+				}
 			}
 		} catch (error) {
 			const aborted = error instanceof CursorStreamAbortError || options?.signal?.aborted;

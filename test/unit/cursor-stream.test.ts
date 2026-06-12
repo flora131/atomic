@@ -196,6 +196,27 @@ describe("CursorStreamAdapter", () => {
 		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 1, closedStreams: 1 });
 	});
 
+	test("pauses pending tool calls when Cursor waits for tool results without done", async () => {
+		class WaitingToolTransport extends CursorMockTransport {
+			async run(request: CursorRunRequest): Promise<CursorRunStream> {
+				const stream = await super.run(request);
+				return new CursorMockRunStream(stream.id, (async function* (): AsyncIterable<CursorServerMessage> {
+					yield { type: "toolCall", id: "tool-waiting", name: "Read", argumentsJson: "{\"path\":\"README.md\"}", execId: "exec-waiting", execNumericId: 42 };
+					await new Promise<void>(() => {});
+				})(), () => void stream.cancel(), () => void stream.close());
+			}
+		}
+		const transport = new WaitingToolTransport();
+		const adapter = new CursorStreamAdapter({ transport, uuid: () => "run-tool-waiting" });
+
+		const events = await collectEventsWithTimeout(adapter.streamSimple(model(), context(), { apiKey: "access-secret", sessionId: "session-tool-waiting", timeoutMs: 1 }), 250);
+
+		const terminal = events.at(-1);
+		assert.equal(terminal?.type, "done");
+		if (terminal?.type === "done") assert.equal(terminal.reason, "toolUse");
+		assert.deepEqual(events.map((event) => event.type), ["start", "toolcall_start", "toolcall_delta", "toolcall_end", "done"]);
+	});
+
 	test("requires a stable session id before pausing a tool-using Cursor turn", async () => {
 		const transport = new CursorMockTransport({ messages: [{ type: "toolCall", id: "tool-1", name: "Read", argumentsJson: "{\"path\":\"README.md\"}" }] });
 		const adapter = new CursorStreamAdapter({ transport, uuid: () => "run-tool-missing-session" });

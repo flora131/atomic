@@ -177,6 +177,17 @@ export class CursorStreamAdapter {
 		} catch (error) {
 			const aborted = error instanceof CursorStreamAbortError || options?.signal?.aborted;
 			const timedOut = error instanceof CursorStreamTimeoutError;
+			if (timedOut && pendingToolCalls.length > 0 && runStream) {
+				closeOpenContent(stream, output, textIndex, thinkingIndex);
+				const toolConversationId = requireCursorToolSessionId(options?.sessionId, "pause a Cursor tool turn");
+				this.#runtime.conversationState.pauseTurnForTools(toolConversationId, runStream, pendingToolCalls, { signal: options?.signal, idleTimeoutMs: this.#runtime.pausedTurnIdleTimeoutMs });
+				conversationId = toolConversationId;
+				output.stopReason = "toolUse";
+				stream.push({ type: "done", reason: "toolUse", message: output });
+				terminalEventSent = true;
+				runStream = undefined;
+				return;
+			}
 			output.stopReason = aborted ? "aborted" : "error";
 			output.errorMessage = aborted
 				? "Cursor stream aborted."

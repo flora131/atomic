@@ -98,7 +98,12 @@ class FakeCodec implements CursorProtocolCodec {
 		if (value === 1) return [{ type: "textDelta", text: "hi" }];
 		if (value === 2) return [{ type: "thinkingDelta", text: "think" }];
 		if (value === 3) return [{ type: "usage", kind: "checkpoint", inputTokens: 4, outputTokens: 5 }];
+		if (value === 9) return [{ type: "nonMcpExec", fieldNumber: 10, execId: "request_context_args", execNumericId: 9 }];
 		return [{ type: "done", reason: "stop" }];
+	}
+
+	encodeServerResponse(message: CursorServerMessage): Uint8Array | undefined {
+		return message.type === "nonMcpExec" && message.fieldNumber === 10 ? new Uint8Array([4]) : undefined;
 	}
 
 	encodeToolResult(): Uint8Array {
@@ -112,6 +117,27 @@ class FakeCodec implements CursorProtocolCodec {
 	encodeHeartbeatRequest(): Uint8Array {
 		return this.heartbeatRequest;
 	}
+}
+
+function makeRequestContextExecFrame(execId: number, commandId: string): Uint8Array {
+	return cursorProtoTest.encodeMessageField(
+		2,
+		cursorProtoTest.concatBytes(
+			cursorProtoTest.encodeVarintField(1, BigInt(execId)),
+			cursorProtoTest.encodeMessageField(10, new Uint8Array()),
+			cursorProtoTest.encodeStringField(15, commandId),
+		),
+	);
+}
+
+function makeKvBlobGetFrame(execId: number, blobId: Uint8Array): Uint8Array {
+	return cursorProtoTest.encodeMessageField(
+		4,
+		cursorProtoTest.concatBytes(
+			cursorProtoTest.encodeVarintField(1, BigInt(execId)),
+			cursorProtoTest.encodeMessageField(2, cursorProtoTest.encodeMessageField(1, blobId)),
+		),
+	);
 }
 
 const model: Model<Api> = {
@@ -192,43 +218,35 @@ describe("Cursor HTTP2 transport boundary", () => {
 		const codec = new CursorProtobufProtocolCodec();
 		const encodedRun = codec.encodeRunRequest({ accessToken: "secret", requestId: "run-proto", model, resolvedModelId: "composer-2", context: contextWithUserMessage });
 		const decodedRunText = new TextDecoder().decode(encodedRun);
-		for (const expected of ["system prompt", "first question", "first answer", "tool-1", "README.md", "tool result text", "hello cursor", "Read a file"]) {
-			assert.ok(decodedRunText.includes(expected), `encoded run omitted ${expected}`);
+		for (const inlineText of ["system prompt", "first question", "first answer", "tool-1", "README.md", "tool result text", "Read a file"]) {
+			assert.equal(decodedRunText.includes(inlineText), false, `encoded run unexpectedly inlined ${inlineText}`);
 		}
-		assert.equal(decodedRunText.includes("toolResult:tool-1"), false);
+		assert.ok(decodedRunText.includes("hello cursor"));
 		const runRequest = cursorProtoTest.readFields(encodedRun)[0]?.value;
 		assert.ok(runRequest instanceof Uint8Array);
 		const runFields = cursorProtoTest.readFields(runRequest);
+		assert.equal(runFields.some((field) => field.fieldNumber === 4), false);
 		assert.equal(runFields.some((field) => field.fieldNumber === 8), false);
 		const conversationState = runFields.find((field) => field.fieldNumber === 1)?.value;
 		assert.ok(conversationState instanceof Uint8Array);
-		const rootPrompt = cursorProtoTest.readFields(conversationState).find((field) => field.fieldNumber === 1)?.value;
-		assert.ok(rootPrompt instanceof Uint8Array);
-		assert.match(cursorProtoTest.decodeString(rootPrompt), /system prompt/u);
-		const turnWrapper = cursorProtoTest.readFields(conversationState).find((field) => field.fieldNumber === 8)?.value;
-		assert.ok(turnWrapper instanceof Uint8Array);
-		const agentTurn = cursorProtoTest.readFields(turnWrapper).find((field) => field.fieldNumber === 1)?.value;
-		assert.ok(agentTurn instanceof Uint8Array);
-		const toolStep = cursorProtoTest.readFields(agentTurn)
-			.filter((field) => field.fieldNumber === 2)
-			.map((field) => field.value)
-			.filter((value): value is Uint8Array => value instanceof Uint8Array)
-			.map((value) => cursorProtoTest.readFields(value).find((field) => field.fieldNumber === 2)?.value)
-			.filter((value): value is Uint8Array => value instanceof Uint8Array)
-			.map((value) => cursorProtoTest.readFields(value).find((field) => field.fieldNumber === 15)?.value)
-			.find((value): value is Uint8Array => value instanceof Uint8Array && cursorProtoTest.decodeString(value).includes("tool result text"));
-		assert.ok(toolStep instanceof Uint8Array);
-		const toolFields = cursorProtoTest.readFields(toolStep);
-		const historicalMcpArgs = toolFields.find((field) => field.fieldNumber === 1)?.value;
-		assert.ok(historicalMcpArgs instanceof Uint8Array);
-		assert.ok(toolFields.some((field) => field.fieldNumber === 2));
-		const historicalArgEntries = cursorProtoTest.readFields(historicalMcpArgs).filter((field) => field.fieldNumber === 2);
-		assert.equal(historicalArgEntries.length, 1);
-		const pathEntry = historicalArgEntries[0]?.value;
-		assert.ok(pathEntry instanceof Uint8Array);
-		const pathEntryFields = cursorProtoTest.readFields(pathEntry);
-		assert.equal(cursorProtoTest.decodeString(pathEntryFields.find((field) => field.fieldNumber === 1)?.value as Uint8Array), "path");
-		assert.equal(cursorProtoTest.decodeValue(pathEntryFields.find((field) => field.fieldNumber === 2)?.value as Uint8Array), "README.md");
+		const conversationFields = cursorProtoTest.readFields(conversationState);
+		const rootPromptBlobId = conversationFields.find((field) => field.fieldNumber === 1)?.value;
+		assert.ok(rootPromptBlobId instanceof Uint8Array);
+		assert.equal(rootPromptBlobId.byteLength, 32);
+		const turnBlobId = conversationFields.find((field) => field.fieldNumber === 8)?.value;
+		assert.ok(turnBlobId instanceof Uint8Array);
+		assert.equal(turnBlobId.byteLength, 32);
+		const rootPromptRequest = codec.decodeRunFrame({ flags: 0, data: makeKvBlobGetFrame(17, rootPromptBlobId), endStream: false })[0];
+		assert.ok(rootPromptRequest);
+		const rootPromptResponse = codec.encodeServerResponse(rootPromptRequest, "run-proto");
+		assert.ok(rootPromptResponse instanceof Uint8Array);
+		const kvClient = cursorProtoTest.readFields(rootPromptResponse).find((field) => field.fieldNumber === 3)?.value;
+		assert.ok(kvClient instanceof Uint8Array);
+		const kvResult = cursorProtoTest.readFields(kvClient).find((field) => field.fieldNumber === 2)?.value;
+		assert.ok(kvResult instanceof Uint8Array);
+		const rootPromptBlob = cursorProtoTest.readFields(kvResult).find((field) => field.fieldNumber === 1)?.value;
+		assert.ok(rootPromptBlob instanceof Uint8Array);
+		assert.match(cursorProtoTest.decodeString(rootPromptBlob), /system prompt/u);
 		const textDelta = cursorProtoTest.encodeMessageField(1, cursorProtoTest.encodeStringField(1, "hello"));
 		const interactionUpdate = cursorProtoTest.encodeMessageField(1, textDelta);
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: interactionUpdate, endStream: false }), [{ type: "textDelta", text: "hello" }]);
@@ -287,11 +305,20 @@ describe("Cursor HTTP2 transport boundary", () => {
 		const runRequest = top[0]?.value;
 		assert.ok(runRequest instanceof Uint8Array);
 		const runFields = cursorProtoTest.readFields(runRequest);
-		const mcpToolFields = runFields.filter((field) => field.fieldNumber === 4);
-		assert.equal(mcpToolFields.length, 1);
-		const wrapper = mcpToolFields[0]?.value;
-		assert.ok(wrapper instanceof Uint8Array);
-		const definitions = cursorProtoTest.readFields(wrapper).filter((field) => field.fieldNumber === 1);
+		assert.equal(runFields.some((field) => field.fieldNumber === 4), false);
+		const requestContext = codec.decodeRunFrame({ flags: 0, data: makeRequestContextExecFrame(31, "request_context_args"), endStream: false })[0];
+		assert.ok(requestContext);
+		const response = codec.encodeServerResponse(requestContext, "run-tools");
+		assert.ok(response instanceof Uint8Array);
+		const execClient = cursorProtoTest.readFields(response).find((field) => field.fieldNumber === 2)?.value;
+		assert.ok(execClient instanceof Uint8Array);
+		const execResult = cursorProtoTest.readFields(execClient).find((field) => field.fieldNumber === 10)?.value;
+		assert.ok(execResult instanceof Uint8Array);
+		const successPayload = cursorProtoTest.readFields(execResult).find((field) => field.fieldNumber === 1)?.value;
+		assert.ok(successPayload instanceof Uint8Array);
+		const contextPayload = cursorProtoTest.readFields(successPayload).find((field) => field.fieldNumber === 1)?.value;
+		assert.ok(contextPayload instanceof Uint8Array);
+		const definitions = cursorProtoTest.readFields(contextPayload).filter((field) => field.fieldNumber === 7);
 		assert.equal(definitions.length, 2);
 		const firstDefinition = definitions[0]?.value;
 		assert.ok(firstDefinition instanceof Uint8Array);
@@ -299,7 +326,7 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.equal(cursorProtoTest.decodeString(definitionFields.get(1) as Uint8Array), "Read");
 		assert.equal(cursorProtoTest.decodeString(definitionFields.get(2) as Uint8Array), "Read a file");
 		assert.deepEqual(cursorProtoTest.decodeValue(definitionFields.get(3) as Uint8Array), { type: "object", properties: { path: { type: "string" } } });
-		assert.equal(cursorProtoTest.decodeString(definitionFields.get(4) as Uint8Array), "atomic");
+		assert.equal(cursorProtoTest.decodeString(definitionFields.get(4) as Uint8Array), "pi");
 		assert.equal(cursorProtoTest.decodeString(definitionFields.get(5) as Uint8Array), "Read");
 	});
 
@@ -392,8 +419,7 @@ describe("Cursor HTTP2 transport boundary", () => {
 			cursorProtoTest.encodeStringField(15, "exec-context"),
 		));
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: requestContextExec, endStream: false }), [{
-			type: "nonMcpExec",
-			fieldNumber: 10,
+			type: "requestContext",
 			execId: "exec-context",
 			execNumericId: 55,
 		}]);
@@ -477,6 +503,16 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.deepEqual(messages.map((message) => message.type), ["textDelta", "thinkingDelta", "usage", "done"]);
 		await run.close();
 		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 0, closedStreams: 1 });
+	});
+
+	test("answers internal Cursor control frames on the same stream", async () => {
+		const client = new FakeHttp2Client([encodeCursorConnectFrame(new Uint8Array([9])), encodeCursorConnectFrame(new Uint8Array([1]))]);
+		const transport = new Http2CursorAgentTransport({ client, codec: new FakeCodec() });
+		const run = await transport.run({ accessToken: "secret", requestId: "run-control", model, resolvedModelId: "composer-2", context });
+		const messages: CursorServerMessage[] = [];
+		for await (const message of run.messages) messages.push(message);
+		assert.deepEqual(messages, [{ type: "textDelta", text: "hi" }]);
+		assert.deepEqual([...decodeCursorConnectFrames(client.streamHandle.writes[1] ?? new Uint8Array())[0]!.data], [4]);
 	});
 
 	test("cancel writes a framed cancel request and updates lifecycle", async () => {

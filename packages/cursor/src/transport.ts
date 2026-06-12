@@ -65,6 +65,13 @@ export type CursorServerMessage =
 	| { readonly type: "nonMcpExec"; readonly fieldNumber: number; readonly execId?: string; readonly execNumericId?: number }
 	| { readonly type: "done"; readonly reason: CursorDoneReason };
 
+export type CursorControlMessage =
+	| { readonly type: "kvGetBlob"; readonly id: number; readonly blobId: Uint8Array }
+	| { readonly type: "kvSetBlob"; readonly id: number; readonly blobId: Uint8Array; readonly blobData: Uint8Array }
+	| { readonly type: "requestContext"; readonly execNumericId?: number; readonly execId?: string };
+
+export type CursorProtocolMessage = CursorServerMessage | CursorControlMessage;
+
 export interface CursorToolResultMessage {
 	readonly toolCallId: string;
 	readonly toolName: string;
@@ -135,10 +142,12 @@ export interface CursorProtocolCodec {
 	encodeGetUsableModelsRequest(): Uint8Array;
 	decodeGetUsableModelsResponse(data: Uint8Array): readonly CursorUsableModel[];
 	encodeRunRequest(request: CursorRunRequest): Uint8Array;
-	decodeRunFrame(frame: CursorConnectFrame): readonly CursorServerMessage[];
+	decodeRunFrame(frame: CursorConnectFrame): readonly CursorProtocolMessage[];
 	encodeToolResult(result: CursorToolResultMessage): Uint8Array;
 	encodeCancelRequest(): Uint8Array;
 	encodeHeartbeatRequest(): Uint8Array;
+	encodeServerResponse?(message: CursorProtocolMessage, requestId: string): Uint8Array | undefined;
+	disposeRun?(requestId: string): void;
 }
 
 export interface Http2CursorAgentTransportOptions {
@@ -194,6 +203,10 @@ export class CursorConnectFrameDecoder {
 		if (this.#buffer.length < 5) throw new Error("Incomplete Cursor Connect frame header.");
 		throw new Error("Incomplete Cursor Connect frame body.");
 	}
+}
+
+function isCursorControlMessage(message: CursorProtocolMessage): message is CursorControlMessage {
+	return message.type === "kvGetBlob" || message.type === "kvSetBlob" || message.type === "requestContext";
 }
 
 async function runWithDeadline<T>(operation: (signal: AbortSignal | undefined) => Promise<T>, timeoutMs: number, parentSignal: AbortSignal | undefined, timeoutMessage: string): Promise<T> {
@@ -348,6 +361,7 @@ class Http2CursorRunStream implements CursorRunStream {
 			} finally {
 				if (!this.#closed) {
 					this.#closed = true;
+					this.codec.disposeRun?.(this.id);
 					this.onClose();
 				}
 			}
@@ -361,6 +375,7 @@ class Http2CursorRunStream implements CursorRunStream {
 		try {
 			await this.handle.close();
 		} finally {
+			this.codec.disposeRun?.(this.id);
 			this.onClose();
 		}
 	}
@@ -374,7 +389,12 @@ class Http2CursorRunStream implements CursorRunStream {
 					continue;
 				}
 				for (const message of this.codec.decodeRunFrame(frame)) {
-					yield message;
+					const response = this.codec.encodeServerResponse?.(message, this.id);
+					if (response) {
+						await this.handle.write(encodeCursorConnectFrame(response));
+						continue;
+					}
+					if (!isCursorControlMessage(message)) yield message;
 				}
 			}
 		}

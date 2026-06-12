@@ -118,6 +118,20 @@ describe("Cursor provider registration", () => {
 		await runtime.dispose();
 	});
 
+	test("cached live catalogs do not inject undiscovered composer defaults", async () => {
+		const { host, registrations } = makeHost();
+		const cache = new MemoryCursorCatalogCache({
+			source: "live",
+			fetchedAt: 56,
+			models: [{ id: "cursor-small", displayName: "Cursor Small", supportsReasoning: false, contextWindow: 1234, maxTokens: 567 }],
+		});
+
+		const runtime = registerCursorProvider(host, { transport: new CursorMockTransport(), catalogCache: cache, uuid: () => "startup-cache-no-default" });
+
+		assert.deepEqual(registrations[0]?.config.models.map((model) => model.id), ["cursor-small"]);
+		await runtime.dispose();
+	});
+
 	test("catalog cache ignores missing/corrupt files and writes live catalogs atomically without credentials", () => {
 		const dir = mkdtempSync(join(tmpdir(), "atomic-cursor-cache-"));
 		try {

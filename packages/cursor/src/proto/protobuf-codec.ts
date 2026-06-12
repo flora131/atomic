@@ -285,13 +285,15 @@ function encodeConversationState(request: CursorRunRequest): Uint8Array {
 
 function encodeMcpTools(request: CursorRunRequest): Uint8Array {
 	const tools = request.context.tools ?? [];
-	return concatBytes(...tools.map((tool) => encodeMessageField(4, concatBytes(
+	if (tools.length === 0) return new Uint8Array();
+	const definitions = tools.map((tool) => encodeMessageField(1, concatBytes(
 		encodeStringField(1, tool.name),
-		encodeStringField(2, "atomic"),
-		encodeStringField(3, tool.name),
-		encodeStringField(4, tool.description),
-		encodeStringField(5, JSON.stringify(tool.parameters)),
-	))));
+		encodeStringField(2, tool.description),
+		encodeMessageField(3, textEncoder.encode(JSON.stringify(tool.parameters))),
+		encodeStringField(4, "atomic"),
+		encodeStringField(5, tool.name),
+	)));
+	return encodeMessageField(4, concatBytes(...definitions));
 }
 
 function extractCurrentActionText(request: CursorRunRequest): string {
@@ -413,4 +415,4 @@ function decodeString(data: Uint8Array): string {
 	return textDecoder.decode(data);
 }
 
-export const __cursorProtoTest = { encodeStringField, encodeMessageField, encodeVarintField, encodeDoubleField, concatBytes };
+export const __cursorProtoTest = { encodeStringField, encodeMessageField, encodeVarintField, encodeDoubleField, concatBytes, readFields, decodeString };

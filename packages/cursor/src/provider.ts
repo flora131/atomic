@@ -18,7 +18,7 @@ import {
 import { CursorAuthService } from "./auth.js";
 import { FileCursorCatalogCache, type CursorCatalogCache } from "./catalog-cache.js";
 import { CursorConversationStateStore } from "./conversation-state.js";
-import { ensureDefaultCursorModel, CursorModelDiscoveryError, CursorModelDiscoveryService } from "./models.js";
+import { CursorModelDiscoveryError, CursorModelDiscoveryService } from "./models.js";
 import {
 	createEstimatedCursorCatalog,
 	mapCursorCatalogToProviderModels,
@@ -94,8 +94,7 @@ export function registerCursorProvider(pi: CursorProviderHost, options: CursorPr
 
 	const loadCachedLiveCatalog = (): CursorModelCatalog | null => {
 		try {
-			const cached = catalogCache.load();
-			return cached ? ensureDefaultCursorModel(cached) : null;
+			return catalogCache.load();
 		} catch {
 			return null;
 		}
@@ -145,7 +144,7 @@ export function registerCursorProvider(pi: CursorProviderHost, options: CursorPr
 	};
 
 	const discoverAndRegisterLiveCatalog = async (accessToken: string, requestId: string, signal: AbortSignal | undefined): Promise<void> => {
-		const liveCatalog = ensureDefaultCursorModel(await discoveryService.discover(accessToken, requestId, signal));
+		const liveCatalog = await discoveryService.discover(accessToken, requestId, signal);
 		registerLiveCatalog(liveCatalog);
 	};
 

@@ -195,6 +195,42 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.deepEqual(codec.decodeRunFrame({ flags: 0, data: interactionUpdate, endStream: false }), [{ type: "textDelta", text: "hello" }]);
 	});
 
+	test("protobuf codec wraps MCP tool definitions with Cursor schema field numbers", () => {
+		const codec = new CursorProtobufProtocolCodec();
+		const encodedRun = codec.encodeRunRequest({
+			accessToken: "secret",
+			requestId: "run-tools",
+			model,
+			resolvedModelId: "composer-2",
+			context: {
+				messages: [{ role: "user", content: "use tools", timestamp: 1 }],
+				tools: [
+					{ name: "Read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } },
+					{ name: "Write", description: "Write a file", parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } } },
+				],
+			},
+		});
+		const top = __cursorProtoTest.readFields(encodedRun);
+		assert.equal(top.length, 1);
+		const runRequest = top[0]?.value;
+		assert.ok(runRequest instanceof Uint8Array);
+		const runFields = __cursorProtoTest.readFields(runRequest);
+		const mcpToolFields = runFields.filter((field) => field.fieldNumber === 4);
+		assert.equal(mcpToolFields.length, 1);
+		const wrapper = mcpToolFields[0]?.value;
+		assert.ok(wrapper instanceof Uint8Array);
+		const definitions = __cursorProtoTest.readFields(wrapper).filter((field) => field.fieldNumber === 1);
+		assert.equal(definitions.length, 2);
+		const firstDefinition = definitions[0]?.value;
+		assert.ok(firstDefinition instanceof Uint8Array);
+		const definitionFields = new Map(__cursorProtoTest.readFields(firstDefinition).map((field) => [field.fieldNumber, field.value]));
+		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(1) as Uint8Array), "Read");
+		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(2) as Uint8Array), "Read a file");
+		assert.deepEqual(JSON.parse(__cursorProtoTest.decodeString(definitionFields.get(3) as Uint8Array)), { type: "object", properties: { path: { type: "string" } } });
+		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(4) as Uint8Array), "atomic");
+		assert.equal(__cursorProtoTest.decodeString(definitionFields.get(5) as Uint8Array), "Read");
+	});
+
 	test("protobuf codec decodes checkpoint token details without treating max tokens as output", () => {
 		const codec = new CursorProtobufProtocolCodec();
 		const tokenDetails = __cursorProtoTest.concatBytes(__cursorProtoTest.encodeVarintField(1, 120n), __cursorProtoTest.encodeVarintField(2, 2000n));

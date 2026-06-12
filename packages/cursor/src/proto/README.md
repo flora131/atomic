@@ -19,6 +19,8 @@ Field provenance (from `ndraiman/pi-cursor-provider` vendored `proto/agent_pb.ts
 - `AgentClientMessage.run_request = 1`
 - `AgentClientMessage.conversation_action = 4`
 - `AgentRunRequest.conversation_state = 1`, `action = 2`, `model_details = 3`, `mcp_tools = 4`, `conversation_id = 5`, `custom_system_prompt = 8`
+- `AgentRunRequest.mcp_tools = 4` contains a `McpTools` wrapper, not direct tool definitions; `McpTools.mcp_tools = 1` repeats `McpToolDefinition` messages.
+- `McpToolDefinition.name = 1`, `description = 2`, `input_schema = 3` (UTF-8 JSON schema bytes), `provider_identifier = 4`, `tool_name = 5`
 - `ConversationStateStructure.root_prompt_messages_json = 1`, `turns = 8`
 - `ConversationAction.user_message_action = 1`, `cancel_action = 3`
 - `UserMessageAction.user_message = 1`; `UserMessage.text = 1`, `message_id = 2`

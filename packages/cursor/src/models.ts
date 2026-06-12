@@ -1,4 +1,3 @@
-import { CURSOR_DEFAULT_MODEL_ID } from "./config.js";
 import { createEstimatedCursorCatalog, type CursorModelCatalog } from "./model-mapper.js";
 import { CursorTransportError, type CursorAgentTransport, type CursorTransportErrorCode } from "./transport.js";
 
@@ -54,15 +53,3 @@ export class CursorModelDiscoveryService {
 	}
 }
 
-export function ensureDefaultCursorModel(catalog: CursorModelCatalog): CursorModelCatalog {
-	if (catalog.models.some((model) => model.id === CURSOR_DEFAULT_MODEL_ID || model.id.startsWith(`${CURSOR_DEFAULT_MODEL_ID}-`))) {
-		return catalog;
-	}
-	return {
-		...catalog,
-		models: [
-			...catalog.models,
-			{ id: CURSOR_DEFAULT_MODEL_ID, displayName: "Composer 2", supportsReasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
-		],
-	};
-}

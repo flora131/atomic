@@ -75,9 +75,8 @@ function firstNonEmptyLine(text: string): string {
     .find((line) => line.length > 0) ?? "";
 }
 
-function hasLeadingStatus(text: string, successMarker: string, failureMarker: string): boolean {
-  const firstLine = firstNonEmptyLine(text);
-  return firstLine === successMarker && !firstLine.includes(failureMarker);
+function hasLeadingStatus(text: string, successMarker: string): boolean {
+  return firstNonEmptyLine(text) === successMarker;
 }
 
 function blockedOutput(
@@ -154,7 +153,7 @@ export default defineWorkflow("publish-release")
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(prepare.text, "PREPARE_STATUS: ready", "PREPARE_STATUS: blocked")) {
+    if (!hasLeadingStatus(prepare.text, "PREPARE_STATUS: ready")) {
       return blockedOutput(release, "prepare-release-branch-and-metadata", "PREPARE_STATUS: ready", prepare.text);
     }
 
@@ -179,7 +178,7 @@ export default defineWorkflow("publish-release")
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(checks.text, "CHECK_STATUS: passed", "CHECK_STATUS: failed")) {
+    if (!hasLeadingStatus(checks.text, "CHECK_STATUS: passed")) {
       return blockedOutput(release, "run-release-checks", "CHECK_STATUS: passed", checks.text, "failed");
     }
 
@@ -207,7 +206,7 @@ export default defineWorkflow("publish-release")
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(pr.text, "PR_STATUS: opened", "PR_STATUS: blocked")) {
+    if (!hasLeadingStatus(pr.text, "PR_STATUS: opened")) {
       return blockedOutput(release, "open-release-pr", "PR_STATUS: opened", pr.text);
     }
 
@@ -224,16 +223,17 @@ export default defineWorkflow("publish-release")
         "1. Identify the PR for the release branch using `gh pr view` or the PR URL above.",
         "2. Wait for required checks using `gh pr checks --watch` or an equivalent `gh` workflow that returns a non-zero status on failures.",
         "3. If any required check fails, stop and report MERGE_STATUS: blocked with the failed check names and URLs/log hints.",
-        "4. When checks pass, merge or enable auto-merge using the repository-supported method. Do not delete the release branch after merge.",
+        "4. When checks pass, merge the PR using the repository-supported method. Do not delete the release branch after merge.",
         `5. Confirm the PR is merged with \`gh pr view --json state,mergedAt,mergeCommit,baseRefName,headRefName,headRefOid\`, then confirm the remote release branch still exists with \`git ls-remote --heads origin ${release.branch}\`.`,
         "",
         "Final response format:",
         "- The first non-empty line must be exactly `MERGE_STATUS: merged` or `MERGE_STATUS: blocked`.",
+        "- Only report `MERGE_STATUS: merged` after GitHub reports `state == MERGED`, `mergedAt` is non-null, and `mergeCommit` is present.",
         "- Include merged commit/ref evidence, branch-retention evidence, commands run, and any blockers.",
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(merge.text, "MERGE_STATUS: merged", "MERGE_STATUS: blocked")) {
+    if (!hasLeadingStatus(merge.text, "MERGE_STATUS: merged")) {
       return blockedOutput(release, "wait-for-release-ci-and-merge", "MERGE_STATUS: merged", merge.text);
     }
 
@@ -260,7 +260,7 @@ export default defineWorkflow("publish-release")
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(publish.text, "PUBLISH_STATUS: completed", "PUBLISH_STATUS: failed")) {
+    if (!hasLeadingStatus(publish.text, "PUBLISH_STATUS: completed")) {
       return blockedOutput(release, "tag-and-monitor-publish", "PUBLISH_STATUS: completed", publish.text, "failed");
     }
 

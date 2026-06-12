@@ -1,82 +1,20 @@
 import { defineWorkflow, Type } from "@bastani/workflows";
-
-type ReleaseKind = "release" | "prerelease";
-type ReleaseStatus = "completed" | "blocked" | "failed";
-
-type ValidatedRelease = {
-  readonly kind: ReleaseKind;
-  readonly version: string;
-  readonly branch: string;
-};
-
-type PublishReleaseOutput = {
-  readonly status: ReleaseStatus;
-  readonly target_version: string;
-  readonly release_kind: ReleaseKind;
-  readonly branch: string;
-  readonly pr_url?: string;
-  readonly tag?: string;
-  readonly summary: string;
-};
+import {
+  firstActionsUrl,
+  firstPrUrl,
+  hasStatusMarker,
+  validateReleaseRequest,
+  type PublishReleaseOutput,
+  type ReleaseStatus,
+  type ValidatedRelease,
+} from "./lib/publish-release-helpers.js";
 
 const releaseKindSchema = Type.Union([Type.Literal("release"), Type.Literal("prerelease")]);
 const statusSchema = Type.Union([Type.Literal("completed"), Type.Literal("blocked"), Type.Literal("failed")]);
 
-function validateReleaseRequest(kind: ReleaseKind, version: string): ValidatedRelease {
-  if (version.startsWith("v")) {
-    throw new Error(`target_version must not include a leading "v"; received ${version}`);
-  }
-
-  const releasePattern = /^\d+\.\d+\.\d+$/;
-  const prereleasePattern = /^\d+\.\d+\.\d+-alpha\.[1-9]\d*$/;
-  const matches = kind === "release" ? releasePattern.test(version) : prereleasePattern.test(version);
-
-  if (!matches) {
-    const expected = kind === "release" ? "MAJOR.MINOR.PATCH" : "MAJOR.MINOR.PATCH-alpha.REVISION";
-    throw new Error(`target_version ${JSON.stringify(version)} is not valid for ${kind}; expected ${expected}`);
-  }
-
-  return {
-    kind,
-    version,
-    branch: `${kind}/${version}`,
-  };
-}
-
-function cleanUrl(url: string): string {
-  return url.replace(/[),.;]+$/u, "");
-}
-
-function urlsIn(text: string): readonly string[] {
-  return (text.match(/https?:\/\/\S+/gu) ?? []).map(cleanUrl);
-}
-
-function firstUrl(text: string): string | undefined {
-  return urlsIn(text)[0];
-}
-
-function firstPrUrl(text: string): string | undefined {
-  return urlsIn(text).find((url) => url.includes("/pull/")) ?? firstUrl(text);
-}
-
-function firstActionsUrl(text: string): string | undefined {
-  return urlsIn(text).find((url) => url.includes("/actions/runs/")) ?? firstUrl(text);
-}
-
 function excerpt(text: string, limit = 1_200): string {
   if (text.length <= limit) return text;
   return `${text.slice(0, limit)}\n…[truncated ${text.length - limit} chars]`;
-}
-
-function firstNonEmptyLine(text: string): string {
-  return text
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "";
-}
-
-function hasLeadingStatus(text: string, successMarker: string): boolean {
-  return firstNonEmptyLine(text) === successMarker;
 }
 
 function blockedOutput(
@@ -148,12 +86,12 @@ export default defineWorkflow("publish-release")
         `7. Commit all release changes on \`${release.branch}\` with a concise conventional message such as \`chore: release ${release.version}\`.`,
         "",
         "Final response format:",
-        "- The first non-empty line must be exactly `PREPARE_STATUS: ready` or `PREPARE_STATUS: blocked`.",
+        "- Include a standalone status line exactly `PREPARE_STATUS: ready` or `PREPARE_STATUS: blocked`; if you mention PREPARE_STATUS more than once, the last standalone status line is authoritative.",
         "- Include source branch, source HEAD, created/current release branch, release commit hash, `git status --short`, changed files, commands run, and any blockers.",
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(prepare.text, "PREPARE_STATUS: ready")) {
+    if (!hasStatusMarker(prepare.text, "PREPARE_STATUS: ready")) {
       return blockedOutput(release, "prepare-release-branch-and-metadata", "PREPARE_STATUS: ready", prepare.text);
     }
 
@@ -173,12 +111,12 @@ export default defineWorkflow("publish-release")
         "4. If either command fails, stop and report CHECK_STATUS: failed with exact failing command and concise diagnostics.",
         "",
         "Final response format:",
-        "- The first non-empty line must be exactly `CHECK_STATUS: passed` or `CHECK_STATUS: failed`.",
+        "- Include a standalone status line exactly `CHECK_STATUS: passed` or `CHECK_STATUS: failed`; if you mention CHECK_STATUS more than once, the last standalone status line is authoritative.",
         "- Include commands run and a compact validation summary.",
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(checks.text, "CHECK_STATUS: passed")) {
+    if (!hasStatusMarker(checks.text, "CHECK_STATUS: passed")) {
       return blockedOutput(release, "run-release-checks", "CHECK_STATUS: passed", checks.text, "failed");
     }
 
@@ -200,13 +138,13 @@ export default defineWorkflow("publish-release")
         "6. Verify the PR with `gh pr view --json url,baseRefName,headRefName,headRefOid` and confirm base is `main`, head is the release branch, and head SHA matches the pushed commit.",
         "",
         "Final response format:",
-        "- The first non-empty line must be exactly `PR_STATUS: opened` or `PR_STATUS: blocked`.",
+        "- Include a standalone status line exactly `PR_STATUS: opened` or `PR_STATUS: blocked`; if you mention PR_STATUS more than once, the last standalone status line is authoritative.",
         "- Include the PR URL on its own line if available.",
         "- Include PR base, head branch, head SHA, commands run, and any blockers.",
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(pr.text, "PR_STATUS: opened")) {
+    if (!hasStatusMarker(pr.text, "PR_STATUS: opened")) {
       return blockedOutput(release, "open-release-pr", "PR_STATUS: opened", pr.text);
     }
 
@@ -227,13 +165,13 @@ export default defineWorkflow("publish-release")
         `5. Confirm the PR is merged with \`gh pr view --json state,mergedAt,mergeCommit,baseRefName,headRefName,headRefOid\`, then confirm the remote release branch still exists with \`git ls-remote --heads origin ${release.branch}\`.`,
         "",
         "Final response format:",
-        "- The first non-empty line must be exactly `MERGE_STATUS: merged` or `MERGE_STATUS: blocked`.",
+        "- Include a standalone status line exactly `MERGE_STATUS: merged` or `MERGE_STATUS: blocked`; if you mention MERGE_STATUS more than once, the last standalone status line is authoritative.",
         "- Only report `MERGE_STATUS: merged` after GitHub reports `state == MERGED`, `mergedAt` is non-null, and `mergeCommit` is present.",
         "- Include merged commit/ref evidence, branch-retention evidence, commands run, and any blockers.",
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(merge.text, "MERGE_STATUS: merged")) {
+    if (!hasStatusMarker(merge.text, "MERGE_STATUS: merged")) {
       return blockedOutput(release, "wait-for-release-ci-and-merge", "MERGE_STATUS: merged", merge.text);
     }
 
@@ -255,12 +193,12 @@ export default defineWorkflow("publish-release")
         "6. If publishing fails, stop and report PUBLISH_STATUS: failed with the run URL and failing job/step summary.",
         "",
         "Final response format:",
-        "- The first non-empty line must be exactly `PUBLISH_STATUS: completed` or `PUBLISH_STATUS: failed`.",
+        "- Include a standalone status line exactly `PUBLISH_STATUS: completed` or `PUBLISH_STATUS: failed`; if you mention PUBLISH_STATUS more than once, the last standalone status line is authoritative.",
         "- Include the pushed tag and SHA, GitHub Actions run URL/status if available, commands run, and final release summary.",
       ].join("\n"),
     });
 
-    if (!hasLeadingStatus(publish.text, "PUBLISH_STATUS: completed")) {
+    if (!hasStatusMarker(publish.text, "PUBLISH_STATUS: completed")) {
       return blockedOutput(release, "tag-and-monitor-publish", "PUBLISH_STATUS: completed", publish.text, "failed");
     }
 

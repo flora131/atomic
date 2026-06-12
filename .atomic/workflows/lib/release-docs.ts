@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+import { createGitEnvironment } from "@bastani/atomic";
 
 export type StaleDocTask = {
   id: string;
@@ -37,10 +38,17 @@ export const DEFAULT_RELEASE_DOCS_BASE_BRANCH = "main";
 
 const repoRoot = (): string => process.cwd();
 
+// Sanitize repository-local Git environment variables (GIT_DIR, GIT_WORK_TREE,
+// GIT_INDEX_FILE, ...) so subprocesses always target `cwd`. Git honors these
+// variables over cwd, so when this lib runs under a hook runner (e.g. prek
+// pre-commit/pre-push), inherited values would silently redirect every command
+// at the real repository — `git init` even persists `core.worktree` into the
+// shared .git/config of the invoking worktree (see git-env.ts).
 const runCommand = (command: string, args: string[], cwd = repoRoot()): string =>
   execFileSync(command, args, {
     cwd,
     encoding: "utf8",
+    env: createGitEnvironment(),
     maxBuffer: 1024 * 1024 * 20,
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();

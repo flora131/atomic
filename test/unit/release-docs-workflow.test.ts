@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 import {
     currentBranchName,
@@ -17,6 +18,7 @@ import {
     type StaleDocTask,
     type UpdateArtifactStatus,
 } from "../../.atomic/workflows/lib/release-docs.js";
+import { createGitEnvironment } from "@bastani/atomic";
 
 const task = (id: string, ownerDocs: string[]): StaleDocTask => ({
     id,
@@ -28,8 +30,29 @@ const task = (id: string, ownerDocs: string[]): StaleDocTask => ({
     acceptance_criteria: [`Criteria ${id}`],
 });
 
+// Always sanitize the Git environment for fixture repos: under a hook runner
+// (e.g. prek) Git exports GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE, which Git
+// honors over cwd — an unsanitized `git init` would then re-initialize the
+// real repository and persist core.worktree into its shared .git/config
+// (see git-env.ts and the regression test below).
 const runGit = (cwd: string, args: string[]): void => {
-    execFileSync("git", args, { cwd, stdio: "ignore" });
+    execFileSync("git", args, { cwd, stdio: "ignore", env: createGitEnvironment() });
+};
+
+const commitAll = (repo: string, message: string): void => {
+    runGit(repo, [
+        "-c",
+        "user.name=Atomic Test",
+        "-c",
+        "user.email=atomic-test@example.com",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "--no-gpg-sign",
+        "--message",
+        message,
+        "--quiet",
+    ]);
 };
 
 describe("release-docs workflow guards", () => {
@@ -39,19 +62,7 @@ describe("release-docs workflow guards", () => {
             runGit(repo, ["init", "--quiet"]);
             writeFileSync(join(repo, "README.md"), "# test\n");
             runGit(repo, ["add", "README.md"]);
-            runGit(repo, [
-                "-c",
-                "user.name=Atomic Test",
-                "-c",
-                "user.email=atomic-test@example.com",
-                "-c",
-                "core.hooksPath=/dev/null",
-                "commit",
-                "--no-gpg-sign",
-                "--message",
-                "initial",
-                "--quiet",
-            ]);
+            commitAll(repo, "initial");
             runGit(repo, ["checkout", "--detach", "HEAD", "--quiet"]);
 
             assert.throws(
@@ -60,6 +71,59 @@ describe("release-docs workflow guards", () => {
             );
         } finally {
             rmSync(repo, { recursive: true, force: true });
+        }
+    });
+
+    test("resolves branch state from the target repo despite ambient Git hook environment", () => {
+        const repo = mkdtempSync(join(tmpdir(), "release-docs-target-"));
+        const ambientRepo = mkdtempSync(join(tmpdir(), "release-docs-ambient-"));
+        const scriptPath = join(tmpdir(), `release-docs-current-branch-${process.pid}-${Date.now()}.ts`);
+        try {
+            // Target repo sits on a branch.
+            runGit(repo, ["init", "--quiet"]);
+            runGit(repo, ["checkout", "-b", "feature/docs", "--quiet"]);
+            writeFileSync(join(repo, "README.md"), "# target\n");
+            runGit(repo, ["add", "README.md"]);
+            commitAll(repo, "initial");
+
+            // Decoy repo is detached; a hook runner (e.g. prek) exports
+            // repository-local Git env vars pointing at the invoking repo.
+            runGit(ambientRepo, ["init", "--quiet"]);
+            writeFileSync(join(ambientRepo, "README.md"), "# ambient\n");
+            runGit(ambientRepo, ["add", "README.md"]);
+            commitAll(ambientRepo, "initial");
+            runGit(ambientRepo, ["checkout", "--detach", "HEAD", "--quiet"]);
+
+            const moduleUrl = pathToFileURL(join(process.cwd(), ".atomic/workflows/lib/release-docs.ts")).href;
+            writeFileSync(
+                scriptPath,
+                [
+                    `import { currentBranchName } from ${JSON.stringify(moduleUrl)};`,
+                    `console.log(currentBranchName(${JSON.stringify(repo)}));`,
+                ].join("\n"),
+            );
+
+            // The ambient Git env must be present at child-process startup to
+            // match hook runners. The repo mandates Bun, so process.execPath is
+            // intentionally the Bun runtime for this child TypeScript script.
+            // Without release-docs' sanitizer, nested Git commands would read
+            // the detached decoy repo instead of `repo`.
+            const output = execFileSync(process.execPath, [scriptPath], {
+                encoding: "utf8",
+                env: {
+                    ...process.env,
+                    GIT_DIR: join(ambientRepo, ".git"),
+                    GIT_WORK_TREE: ambientRepo,
+                    GIT_INDEX_FILE: join(ambientRepo, ".git", "index"),
+                },
+                stdio: ["ignore", "pipe", "pipe"],
+            }).trim();
+
+            assert.equal(output, "feature/docs");
+        } finally {
+            rmSync(scriptPath, { force: true });
+            rmSync(repo, { recursive: true, force: true });
+            rmSync(ambientRepo, { recursive: true, force: true });
         }
     });
 

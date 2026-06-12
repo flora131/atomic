@@ -10,7 +10,7 @@ import {
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { parseJsonObject, sanitizeDiagnosticText } from "./config.js";
-import { CursorConversationStateStore } from "./conversation-state.js";
+import { CursorConversationStateStore, type CursorConversationSnapshot } from "./conversation-state.js";
 import { resolveCursorModelVariant } from "./model-mapper.js";
 import type { CursorAgentTransport, CursorRunStream, CursorServerMessage, CursorToolCallMessage, CursorToolResultMessage } from "./transport.js";
 
@@ -65,7 +65,7 @@ export class CursorStreamAdapter {
 		await this.#runtime.transport.dispose();
 	}
 
-	getLifecycleSnapshot() {
+	getLifecycleSnapshot(): CursorConversationSnapshot {
 		return this.#runtime.conversationState.snapshot(this.#runtime.transport.getLifecycleSnapshot());
 	}
 
@@ -332,6 +332,8 @@ function updateUsage(output: AssistantMessage, model: Model<Api>, message: Extra
 		output.usage.output += message.outputTokens;
 	} else {
 		if (message.inputTokens !== undefined) output.usage.input = message.inputTokens;
+		// Cursor checkpoint `usedTokens` omits a dedicated input field on some
+		// frames, so estimate input from already-seen output/cache counters.
 		else if (message.usedTokens !== undefined) output.usage.input = Math.max(0, message.usedTokens - output.usage.output - output.usage.cacheRead - output.usage.cacheWrite);
 		if (message.outputTokens !== undefined) output.usage.output = message.outputTokens;
 		if (message.cacheReadTokens !== undefined) output.usage.cacheRead = message.cacheReadTokens;
@@ -354,6 +356,7 @@ async function readNextCursorMessage(iterator: AsyncIterator<CursorServerMessage
 		timeout.unref?.();
 	}) : undefined;
 	const messagePromise = iterator.next().then((result): IteratorReadResult => ({ kind: "message", result }));
+	void messagePromise.catch(() => undefined);
 	try {
 		return await Promise.race([messagePromise, ...(abortPromise ? [abortPromise] : []), ...(timeoutPromise ? [timeoutPromise] : [])]);
 	} finally {

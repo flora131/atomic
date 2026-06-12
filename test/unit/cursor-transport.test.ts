@@ -328,6 +328,9 @@ describe("Cursor HTTP2 transport boundary", () => {
 			cursorProtoTest.encodeMessageField(2, mcpArgEntry("nested", valueStruct([["key", valueString("value")]]))),
 			cursorProtoTest.encodeMessageField(2, mcpArgEntry("items", valueList([valueString("a"), valueNumber(2)]))),
 			cursorProtoTest.encodeMessageField(2, mcpArgEntry("path", new TextEncoder().encode("README.md"))),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("rawNumber", new TextEncoder().encode("2024"))),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("rawBoolean", new TextEncoder().encode("true"))),
+			cursorProtoTest.encodeMessageField(2, mcpArgEntry("rawNull", new TextEncoder().encode("null"))),
 			cursorProtoTest.encodeMessageField(2, mcpArgEntry("options", new TextEncoder().encode("{\"limit\":3}"))),
 			cursorProtoTest.encodeStringField(5, "search"),
 		);
@@ -343,7 +346,7 @@ describe("Cursor HTTP2 transport boundary", () => {
 			name: "search",
 			execId: "exec-99",
 			execNumericId: 99,
-			argumentsJson: JSON.stringify({ query: "hello", count: 42.5, enabled: true, nothing: null, nested: { key: "value" }, items: ["a", 2], path: "README.md", options: { limit: 3 } }),
+			argumentsJson: JSON.stringify({ query: "hello", count: 42.5, enabled: true, nothing: null, nested: { key: "value" }, items: ["a", 2], path: "README.md", rawNumber: "2024", rawBoolean: "true", rawNull: "null", options: "{\"limit\":3}" }),
 		}]);
 	});
 

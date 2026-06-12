@@ -1,4 +1,4 @@
-import { createCursorExperimentalProtocolError, parseJsonValue, type JsonObject, type JsonValue } from "../config.js";
+import { createCursorExperimentalProtocolError, type JsonObject, type JsonValue } from "../config.js";
 import type { CursorUsableModel } from "../model-mapper.js";
 import type { CursorConnectFrame, CursorDoneReason, CursorProtocolCodec, CursorRunRequest, CursorServerMessage, CursorToolResultMessage } from "../transport.js";
 
@@ -206,8 +206,10 @@ function decodeMcpArgValue(data: Uint8Array): JsonValue {
 		// Cursor can send raw UTF-8 bytes in McpArgs.args map values; fall through to raw decoding.
 	}
 	try {
-		const raw = strictTextDecoder.decode(data);
-		return parseJsonValue(raw) ?? raw;
+		// Raw bytes are Cursor's string fallback; typed values should arrive as
+		// protobuf Value. Do not JSON-parse raw UTF-8, or strings such as "2024"
+		// and "true" would silently change JS type before reaching Atomic tools.
+		return strictTextDecoder.decode(data);
 	} catch {
 		throw new Error("Cursor MCP argument value was neither protobuf Value nor valid UTF-8.");
 	}

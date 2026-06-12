@@ -374,6 +374,46 @@ describe("CursorStreamAdapter", () => {
 		assert.deepEqual(adapter.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 1, closedStreams: 1, activeTurns: 0 });
 	});
 
+	test("observes iterator failures that arrive after a stream read timeout", async () => {
+		const unhandledReasons: string[] = [];
+		const onUnhandled = (reason: {} | null | undefined): void => {
+			unhandledReasons.push(String(reason));
+		};
+		process.on("unhandledRejection", onUnhandled);
+		try {
+			class LateRejectTransport implements CursorAgentTransport {
+				#openStreams = 0;
+				#cancelledStreams = 0;
+				#closedStreams = 0;
+				async getUsableModels(): Promise<readonly CursorUsableModel[]> { return []; }
+				async run(request: CursorRunRequest): Promise<CursorRunStream> {
+					this.#openStreams += 1;
+					return new CursorMockRunStream(request.requestId, (async function* (): AsyncIterable<CursorServerMessage> {
+						await new Promise((resolve) => setTimeout(resolve, 10));
+						throw new Error("late cursor iterator failure");
+					})(), () => {
+						this.#cancelledStreams += 1;
+					}, () => {
+						this.#closedStreams += 1;
+						this.#openStreams = Math.max(0, this.#openStreams - 1);
+					});
+				}
+				async dispose(): Promise<void> {}
+				getLifecycleSnapshot() { return { openStreams: this.#openStreams, cancelledStreams: this.#cancelledStreams, closedStreams: this.#closedStreams }; }
+			}
+			const adapter = new CursorStreamAdapter({ transport: new LateRejectTransport(), uuid: () => "run-late-reject" });
+
+			const events = await collectEventsWithTimeout(adapter.streamSimple(model(), context(), { apiKey: "access-secret", timeoutMs: 1 }), 250);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+
+			assert.equal(events.at(-1)?.type, "error");
+			assert.deepEqual(unhandledReasons, []);
+			assert.deepEqual(adapter.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 1, closedStreams: 1, activeTurns: 0 });
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+		}
+	});
+
 	test("aborts stalled tool-result resume writes with the current signal", async () => {
 		class StalledResumeStream implements CursorRunStream {
 			readonly id = "run-stalled-resume-abort";

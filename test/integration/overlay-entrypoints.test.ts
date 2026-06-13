@@ -719,6 +719,14 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     assert.equal(focused, true);
     assert.deepEqual(setHiddenCalls, [true, false]);
     assert.equal(focusCalls, 1);
+    assert.deepEqual(
+      statusMessages.slice(-2),
+      [
+        { key: "pi-workflows", value: undefined },
+        { key: "pi-workflows", value: "pi-workflows/workflow" },
+      ],
+      "host restore should explicitly clear its paused status before the pane restores its own status",
+    );
     assert.equal(renderCalls, 1, "host restore must explicitly request a render");
     assert.equal(calls.length, 1, "host restore must not remount the overlay");
   });

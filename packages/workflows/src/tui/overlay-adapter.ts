@@ -19,6 +19,7 @@ import type { Store } from "../shared/store.js";
 import type { StoreSnapshot } from "../shared/store-types.js";
 import type { ChatMessageRenderOptions, ReadonlyFooterDataProvider } from "@bastani/atomic";
 import { WorkflowAttachPane } from "./workflow-attach-pane.js";
+import { WORKFLOW_STATUS_KEY } from "./workflow-status.js";
 import { deriveGraphThemeFromPiTheme } from "./graph-theme.js";
 import { killRun as defaultKillRun } from "../runs/background/status.js";
 import { cancellationRegistry } from "../runs/background/cancellation-registry.js";
@@ -100,7 +101,6 @@ const FULLSCREEN_OVERLAY_OPTIONS: PiOverlayOptions = {
 
 const MOUSE_SCROLL_TRACKING_ON = "\x1b[?1000h\x1b[?1006h";
 const MOUSE_SCROLL_TRACKING_OFF = "\x1b[?1006l\x1b[?1000l";
-const WORKFLOW_STATUS_KEY = "pi-workflows";
 const HOST_CUSTOM_UI_PAUSED_STATUS =
   "Workflow graph paused while you answer this question. Return to the graph after responding.";
 
@@ -173,6 +173,7 @@ export function buildGraphOverlayAdapter(
     if (!overlayYieldedToHostCustomUi) return;
     if (readHostCustomUiActive()) return;
     overlayYieldedToHostCustomUi = false;
+    observedUi?.setStatus?.(WORKFLOW_STATUS_KEY, undefined);
     if (!mounted || currentHandle === null) return;
     currentView?.setVisible(true);
     setMouseScrollTracking(currentView?.wantsMouseScrollTracking() ?? true);
@@ -337,6 +338,7 @@ export function buildGraphOverlayAdapter(
         if (settled) return;
         settled = true;
         setMouseScrollTracking(false);
+        overlayYieldedToHostCustomUi = false;
         observedUi?.setStatus?.(WORKFLOW_STATUS_KEY, undefined);
         currentView?.dispose();
         currentView = null;

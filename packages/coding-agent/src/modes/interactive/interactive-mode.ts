@@ -81,6 +81,8 @@ import type {
   ExtensionRunner,
   ExtensionUIContext,
   ExtensionUIDialogOptions,
+  HostCustomUiState,
+  HostCustomUiStateListener,
   ProjectTrustContext,
   ExtensionWidgetOptions,
 } from "../../core/extensions/index.ts";
@@ -440,6 +442,8 @@ export class InteractiveMode {
   private extensionInput: ExtensionInputComponent | undefined = undefined;
   private extensionEditor: ExtensionEditorComponent | undefined = undefined;
   private extensionTerminalInputUnsubscribers = new Set<() => void>();
+  private blockingInlineCustomUiDepth = 0;
+  private hostCustomUiStateListeners = new Set<HostCustomUiStateListener>();
 
   // Extension widgets (components rendered above/below the editor)
   private extensionWidgetsAbove = new Map<
@@ -2515,6 +2519,47 @@ export class InteractiveMode {
     this.extensionTerminalInputUnsubscribers.clear();
   }
 
+  private getHostCustomUiState(): HostCustomUiState {
+    return {
+      blockingInlineCustomUiDepth: this.blockingInlineCustomUiDepth,
+      blockingInlineCustomUiActive: this.blockingInlineCustomUiDepth > 0,
+    };
+  }
+
+  private notifyHostCustomUiStateListeners(): void {
+    const state = this.getHostCustomUiState();
+    for (const listener of this.hostCustomUiStateListeners) {
+      try {
+        listener(state);
+      } catch {
+        /* ignore observer errors */
+      }
+    }
+  }
+
+  private beginHostInlineCustomUi(): () => void {
+    let released = false;
+    this.blockingInlineCustomUiDepth++;
+    this.notifyHostCustomUiStateListeners();
+    return () => {
+      if (released) return;
+      released = true;
+      this.blockingInlineCustomUiDepth = Math.max(
+        0,
+        this.blockingInlineCustomUiDepth - 1,
+      );
+      this.notifyHostCustomUiStateListeners();
+    };
+  }
+
+  private onHostCustomUiStateChange(
+    listener: HostCustomUiStateListener,
+  ): () => void {
+    this.hostCustomUiStateListeners.add(listener);
+    return () => {
+      this.hostCustomUiStateListeners.delete(listener);
+    };
+  }
 
   private createProjectTrustContext(cwd: string): ProjectTrustContext {
     const ui = this.createExtensionUIContext();
@@ -2544,6 +2589,9 @@ export class InteractiveMode {
         this.showExtensionInput(title, placeholder, opts),
       notify: (message, type) => this.showExtensionNotify(message, type),
       requestRender: () => this.ui.requestRender(),
+      getHostCustomUiState: () => this.getHostCustomUiState(),
+      onHostCustomUiStateChange: (listener) =>
+        this.onHostCustomUiStateChange(listener),
       onTerminalInput: (handler) =>
         this.addExtensionTerminalInputListener(handler),
       setStatus: (key, text) => this.setExtensionStatus(key, text),
@@ -2919,6 +2967,7 @@ export class InteractiveMode {
       let component: (Component & { dispose?(): void }) | undefined;
       let closed = false;
       let mounted = false;
+      let releaseHostInlineCustomUi: (() => void) | undefined;
 
       const disposeComponent = () => {
         try {
@@ -2926,6 +2975,10 @@ export class InteractiveMode {
         } catch {
           /* ignore dispose errors */
         }
+      };
+
+      const releaseHostCustomUi = () => {
+        releaseHostInlineCustomUi?.();
       };
 
       const cleanupAbortListener = () => {
@@ -2943,8 +2996,9 @@ export class InteractiveMode {
         closed = true;
         cleanupAbortListener();
         closeMountedUi();
-        resolve(result);
         disposeComponent();
+        releaseHostCustomUi();
+        resolve(result);
       };
 
       const rejectAndClose = (reason: unknown) => {
@@ -2953,6 +3007,7 @@ export class InteractiveMode {
         cleanupAbortListener();
         closeMountedUi();
         disposeComponent();
+        releaseHostCustomUi();
         reject(reason);
       };
 
@@ -2964,9 +3019,26 @@ export class InteractiveMode {
         abortCustomUi();
         return;
       }
+      releaseHostInlineCustomUi = isOverlay
+        ? undefined
+        : this.beginHostInlineCustomUi();
+      if (options?.signal?.aborted) {
+        abortCustomUi();
+        return;
+      }
       options?.signal?.addEventListener("abort", abortCustomUi, { once: true });
 
-      Promise.resolve(factory(this.ui, theme, this.keybindings, close))
+      let factoryResult:
+        | (Component & { dispose?(): void })
+        | Promise<Component & { dispose?(): void }>;
+      try {
+        factoryResult = factory(this.ui, theme, this.keybindings, close);
+      } catch (err) {
+        rejectAndClose(err);
+        return;
+      }
+
+      Promise.resolve(factoryResult)
         .then((c) => {
           if (closed) {
             try {

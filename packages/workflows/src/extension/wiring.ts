@@ -499,6 +499,13 @@ export interface PiOverlayHandle {
  * (`overlay-adapter.ts`); inline pickers leave it unset and dismiss
  * via the factory `done()` callback.
  */
+export interface PiHostCustomUiState {
+  blockingInlineCustomUiDepth: number;
+  blockingInlineCustomUiActive: boolean;
+}
+
+export type PiHostCustomUiStateListener = (state: PiHostCustomUiState) => void;
+
 export interface PiCustomOverlayOptions {
   /**
    * `true` mounts a floating popup; `false` mounts a focused
@@ -636,6 +643,10 @@ export interface PiUISurface {
   setTitle?: (title: string) => void;
   /** Show a custom component or overlay. */
   custom?: PiCustomOverlayFunction;
+  /** Get host-owned inline custom UI focus state, if exposed by the host. */
+  getHostCustomUiState?: () => PiHostCustomUiState;
+  /** Observe host-owned inline custom UI focus state changes, if exposed by the host. */
+  onHostCustomUiStateChange?: (listener: PiHostCustomUiStateListener) => () => void;
   pasteToEditor?: (text: string) => void;
   setEditorText?: (text: string) => void;
   getEditorText?: () => string;

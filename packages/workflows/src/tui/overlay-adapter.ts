@@ -31,6 +31,8 @@ import type {
   PiCustomOverlayFunction,
   PiCustomOverlayOptions,
   PiEditorFactory,
+  PiHostCustomUiState,
+  PiHostCustomUiStateListener,
   PiKeybindings,
   PiOverlayHandle,
   PiOverlayOptions,
@@ -41,6 +43,8 @@ export type OverlayChatRenderSettings = Partial<Omit<ChatMessageRenderOptions, "
 
 export interface OverlayUISurface {
   custom?: PiCustomOverlayFunction;
+  getHostCustomUiState?: () => PiHostCustomUiState;
+  onHostCustomUiStateChange?: (listener: PiHostCustomUiStateListener) => () => void;
   getEditorComponent?: () => PiEditorFactory | undefined;
   getChatRenderSettings?: () => OverlayChatRenderSettings | undefined;
   getFooterDataProvider?: () => ReadonlyFooterDataProvider;
@@ -137,9 +141,59 @@ export function buildGraphOverlayAdapter(
   let currentHandle: PiOverlayHandle | null = null;
   let mounted = false;
   let finishMounted: (() => void) | null = null;
+  let observedUi: OverlayUISurface | undefined;
+  let unsubscribeHostCustomUi: (() => void) | null = null;
+  let hostInlineCustomUiActive = false;
+  let overlayYieldedToHostCustomUi = false;
+
+  function readHostCustomUiActive(ui: OverlayUISurface | undefined = observedUi): boolean {
+    const state = ui?.getHostCustomUiState?.();
+    if (state) hostInlineCustomUiActive = state.blockingInlineCustomUiActive;
+    return hostInlineCustomUiActive;
+  }
+
+  function yieldToHostCustomUi(): void {
+    if (overlayYieldedToHostCustomUi) return;
+    if (!mounted || currentHandle === null) return;
+    if (currentHandle.isHidden()) return;
+    currentView?.setVisible(false);
+    setMouseScrollTracking(false);
+    currentHandle.setHidden(true);
+    currentHandle.unfocus();
+    overlayYieldedToHostCustomUi = true;
+  }
+
+  function restoreAfterHostCustomUi(): void {
+    if (!overlayYieldedToHostCustomUi) return;
+    if (readHostCustomUiActive()) return;
+    overlayYieldedToHostCustomUi = false;
+    if (!mounted || currentHandle === null) return;
+    currentView?.setVisible(true);
+    setMouseScrollTracking(currentView?.wantsMouseScrollTracking() ?? true);
+    currentHandle.setHidden(false);
+    currentHandle.focus();
+  }
+
+  function observeHostCustomUi(ui: OverlayUISurface | undefined): void {
+    if (observedUi !== ui) {
+      unsubscribeHostCustomUi?.();
+      unsubscribeHostCustomUi = null;
+      observedUi = ui;
+      hostInlineCustomUiActive = false;
+      if (typeof ui?.onHostCustomUiStateChange === "function") {
+        unsubscribeHostCustomUi = ui.onHostCustomUiStateChange((state) => {
+          hostInlineCustomUiActive = state.blockingInlineCustomUiActive;
+          if (hostInlineCustomUiActive) yieldToHostCustomUi();
+          else restoreAfterHostCustomUi();
+        });
+      }
+    }
+    if (readHostCustomUiActive(ui)) yieldToHostCustomUi();
+  }
 
   function close(): void {
     setMouseScrollTracking(false);
+    overlayYieldedToHostCustomUi = false;
     currentHandle?.hide();
     finishMounted?.();
     currentView?.dispose();
@@ -167,6 +221,7 @@ export function buildGraphOverlayAdapter(
    */
   function hideMounted(): void {
     setMouseScrollTracking(false);
+    overlayYieldedToHostCustomUi = false;
     if (currentHandle) {
       currentView?.setVisible(false);
       currentHandle.setHidden(true);
@@ -180,6 +235,7 @@ export function buildGraphOverlayAdapter(
   }
 
   function refocusVisibleOverlayForAwaitingInput(snapshot: StoreSnapshot): void {
+    if (readHostCustomUiActive()) return;
     if (currentHandle === null) return;
     if (currentHandle.isHidden()) return;
     if (currentHandle.isFocused()) return;
@@ -217,9 +273,14 @@ export function buildGraphOverlayAdapter(
     surface?: OverlayPiSurface,
     stageId?: string,
   ): void {
+    const ui = surface?.ui ?? pi.ui;
+    observeHostCustomUi(ui);
+    const hostBlocked = readHostCustomUiActive(ui);
+
     // Already mounted but hidden — flip visibility without remounting.
     if (mounted && currentHandle?.isHidden()) {
       currentView?.retarget(runId, stageId);
+      if (hostBlocked) return;
       currentView?.setVisible(true);
       setMouseScrollTracking(currentView?.wantsMouseScrollTracking() ?? true);
       currentHandle.setHidden(false);
@@ -228,6 +289,10 @@ export function buildGraphOverlayAdapter(
     }
     if (mounted) {
       currentView?.retarget(runId, stageId);
+      if (hostBlocked) {
+        yieldToHostCustomUi();
+        return;
+      }
       setMouseScrollTracking(currentView?.wantsMouseScrollTracking() ?? true);
       // Restore keyboard focus to the visible overlay after retargeting.
       // pi-tui dispatches key events only to the focused component, so a
@@ -239,7 +304,6 @@ export function buildGraphOverlayAdapter(
       return;
     }
 
-    const ui = surface?.ui ?? pi.ui;
     const custom = ui?.custom;
     if (typeof custom !== "function") return;
     const uiStatus = ui as { setStatus?: (key: string, value: string | undefined) => void } | undefined;
@@ -299,6 +363,7 @@ export function buildGraphOverlayAdapter(
         // so the gate receives input even if focus drifted off the overlay
         // while the agent's turn was streaming (#1120).
         requestFocus: () => {
+          if (readHostCustomUiActive()) return;
           if (currentHandle?.isHidden() === true) return;
           // Idempotent: only grab focus if the overlay does not already own it.
           // A redundant focus() while already focused re-runs pi-tui's focus
@@ -320,6 +385,7 @@ export function buildGraphOverlayAdapter(
       finishMounted = finish;
       mounted = true;
       setMouseScrollTracking(view.wantsMouseScrollTracking());
+      if (readHostCustomUiActive(ui)) yieldToHostCustomUi();
       return makeComponent(view, tui);
     };
 
@@ -328,16 +394,20 @@ export function buildGraphOverlayAdapter(
       overlayOptions: FULLSCREEN_OVERLAY_OPTIONS,
       onHandle: (handle) => {
         currentHandle = handle;
+        if (readHostCustomUiActive(ui)) yieldToHostCustomUi();
       },
     };
     void custom(factory, options);
   }
 
   function toggle(runId: string | null, surface?: OverlayPiSurface): void {
+    observeHostCustomUi(surface?.ui ?? pi.ui);
     // Hide without unmounting if we have a handle (no remount means
     // no scroll-pollution).
     if (mounted && currentHandle) {
       const nowHidden = !currentHandle.isHidden();
+      if (!nowHidden && readHostCustomUiActive()) return;
+      if (nowHidden) overlayYieldedToHostCustomUi = false;
       currentView?.setVisible(!nowHidden);
       setMouseScrollTracking(
         nowHidden ? false : currentView?.wantsMouseScrollTracking() ?? true,

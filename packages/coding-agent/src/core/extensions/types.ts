@@ -149,6 +149,16 @@ export interface ChatRenderSettings {
 	getCustomMessageRenderer(customType: string): MessageRenderer | undefined;
 }
 
+/** Host-owned inline custom UI focus state exposed to overlays without prompt content. */
+export interface HostCustomUiState {
+	/** Number of active non-overlay host custom UI mounts. */
+	blockingInlineCustomUiDepth: number;
+	/** True when at least one non-overlay host custom UI currently owns focus. */
+	blockingInlineCustomUiActive: boolean;
+}
+
+export type HostCustomUiStateListener = (state: HostCustomUiState) => void;
+
 /**
  * UI context for extensions to request interactive UI.
  * Each mode (interactive, RPC, print) provides its own implementation.
@@ -168,6 +178,12 @@ export interface ExtensionUIContext {
 
 	/** Request an interactive repaint after extension-owned state changes. */
 	requestRender(): void;
+
+	/** Get host-owned inline custom UI focus state, if the mode exposes it. */
+	getHostCustomUiState?(): HostCustomUiState;
+
+	/** Observe host-owned inline custom UI focus state changes. Returns an unsubscribe function. */
+	onHostCustomUiStateChange?(listener: HostCustomUiStateListener): () => void;
 
 	/** Listen to raw terminal input (interactive mode only). Returns an unsubscribe function. */
 	onTerminalInput(handler: TerminalInputHandler): () => void;

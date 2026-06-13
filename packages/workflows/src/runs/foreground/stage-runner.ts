@@ -284,6 +284,12 @@ function latestTerminalAssistantFailureSince(
   return undefined;
 }
 
+function assistantFailureField(message: unknown, key: string): unknown {
+  return message !== null && typeof message === "object"
+    ? (message as Record<string, unknown>)[key]
+    : undefined;
+}
+
 class WorkflowPromptModelFailure extends Error {
   override readonly cause: unknown;
 
@@ -291,6 +297,14 @@ class WorkflowPromptModelFailure extends Error {
     super(errorMessage(cause));
     this.name = "WorkflowPromptModelFailure";
     this.cause = cause;
+    Object.assign(this, {
+      workflowTerminalAssistantFailure: true,
+      ...(typeof assistantFailureField(cause, "stopReason") === "string" ? { stopReason: assistantFailureField(cause, "stopReason") } : {}),
+      ...(assistantFailureField(cause, "errorMessage") !== undefined ? { errorMessage: assistantFailureField(cause, "errorMessage") } : {}),
+      ...(assistantFailureField(cause, "code") !== undefined ? { code: assistantFailureField(cause, "code") } : {}),
+      ...(assistantFailureField(cause, "status") !== undefined ? { status: assistantFailureField(cause, "status") } : {}),
+      ...(assistantFailureField(cause, "diagnostics") !== undefined ? { diagnostics: assistantFailureField(cause, "diagnostics") } : {}),
+    });
   }
 }
 
@@ -826,19 +840,33 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     return { terminalScanStartIndex: activeSession.messages.length };
   }
 
+  function throwTerminalAssistantFailureIfPresent(
+    activeSession: StageSessionRuntime,
+    terminalScanStartIndex: number,
+  ): void {
+    const terminalFailure = latestTerminalAssistantFailureSince(activeSession.messages, terminalScanStartIndex);
+    if (terminalFailure !== undefined) {
+      throw new WorkflowPromptModelFailure(terminalFailure);
+    }
+  }
+
   async function promptWithFallback(
     text: string,
     sdkOptions: PromptOptions | undefined,
     consumer: AgentSessionConsumer = "prompt",
   ): Promise<void> {
     if (!hasExplicitModelFallbackConfig) {
-      await promptWithPauseResume(await ensureSession(consumer), text, sdkOptions);
+      const activeSession = await ensureSession(consumer);
+      const { terminalScanStartIndex } = await promptWithPauseResume(activeSession, text, sdkOptions);
+      throwTerminalAssistantFailureIfPresent(activeSession, terminalScanStartIndex);
       return;
     }
 
     const candidates = await modelCandidates();
     if (candidates.length === 0) {
-      await promptWithPauseResume(await ensureSession(consumer), text, sdkOptions);
+      const activeSession = await ensureSession(consumer);
+      const { terminalScanStartIndex } = await promptWithPauseResume(activeSession, text, sdkOptions);
+      throwTerminalAssistantFailureIfPresent(activeSession, terminalScanStartIndex);
       return;
     }
 
@@ -853,10 +881,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       notifyModelFallbackMetaChange();
       try {
         const { terminalScanStartIndex } = await promptWithPauseResume(activeSession, text, sdkOptions);
-        const terminalFailure = latestTerminalAssistantFailureSince(activeSession.messages, terminalScanStartIndex);
-        if (terminalFailure !== undefined) {
-          throw new WorkflowPromptModelFailure(terminalFailure);
-        }
+        throwTerminalAssistantFailureIfPresent(activeSession, terminalScanStartIndex);
         modelAttempts.push({ model: candidate.id, success: true, ...modelAttemptReasoning(candidate) });
         pendingFallbackWarnings.length = 0;
         return;

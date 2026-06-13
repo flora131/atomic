@@ -285,6 +285,109 @@ describe("store run pausing", () => {
       Date.now = originalNow;
     }
   });
+
+  test("recordRunEnd completed clears stale blocked failure metadata", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    assert.equal(s.recordRunBlocked("r1", "rate limit", {
+      failureKind: "rate_limit",
+      failureCode: "rate_limited",
+      failureRecoverability: "recoverable",
+      failureDisposition: "active_blocked",
+      failureMessage: "HTTP 429",
+      retryAfterMs: 1000,
+      blockedAt: 123,
+      failedStageId: "stage-1",
+      resumable: true,
+    }), true);
+
+    assert.equal(s.recordRunEnd("r1", "completed", { ok: true }), true);
+
+    const run = s.snapshot().runs[0]!;
+    assert.equal(run.status, "completed");
+    assert.deepEqual(run.result, { ok: true });
+    assert.equal("error" in run, false);
+    assert.equal("failureKind" in run, false);
+    assert.equal("failureCode" in run, false);
+    assert.equal("failureRecoverability" in run, false);
+    assert.equal("failureDisposition" in run, false);
+    assert.equal("failureMessage" in run, false);
+    assert.equal("retryAfterMs" in run, false);
+    assert.equal("blockedAt" in run, false);
+    assert.equal("failedStageId" in run, false);
+    assert.equal("resumable" in run, false);
+  });
+
+  test("recordRunEnd killed clears stale blocked-only failure metadata before applying terminal metadata", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    assert.equal(s.recordRunBlocked("r1", "rate limit", {
+      failureKind: "rate_limit",
+      failureCode: "rate_limited",
+      failureRecoverability: "recoverable",
+      failureDisposition: "active_blocked",
+      failureMessage: "HTTP 429",
+      retryAfterMs: 1000,
+      blockedAt: 123,
+      failedStageId: "stage-1",
+      resumable: true,
+    }), true);
+
+    assert.equal(s.recordRunEnd("r1", "killed", undefined, "workflow killed", {
+      failureKind: "cancelled",
+      failureMessage: "workflow killed",
+      resumable: false,
+    }), true);
+
+    const run = s.snapshot().runs[0]!;
+    assert.equal(run.status, "killed");
+    assert.equal(run.error, "workflow killed");
+    assert.equal(run.failureKind, "cancelled");
+    assert.equal(run.failureMessage, "workflow killed");
+    assert.equal(run.resumable, false);
+    assert.equal("failureCode" in run, false);
+    assert.equal(run.failureRecoverability, "non_recoverable");
+    assert.equal(run.failureDisposition, "terminal_killed");
+    assert.equal("retryAfterMs" in run, false);
+    assert.equal("blockedAt" in run, false);
+    assert.equal("failedStageId" in run, false);
+  });
+
+  test("recordRunEnd failed clears stale blocked-only failure metadata before applying terminal metadata", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    assert.equal(s.recordRunBlocked("r1", "provider blocked", {
+      failureKind: "provider",
+      failureCode: "provider_unavailable",
+      failureRecoverability: "recoverable",
+      failureDisposition: "active_blocked",
+      failureMessage: "provider blocked",
+      retryAfterMs: 2000,
+      blockedAt: 456,
+      failedStageId: "stage-2",
+      resumable: true,
+    }), true);
+
+    assert.equal(s.recordRunEnd("r1", "failed", undefined, "provider failed", {
+      failureKind: "provider",
+      failureDisposition: "terminal_failed",
+      failureMessage: "provider failed",
+      resumable: false,
+    }), true);
+
+    const run = s.snapshot().runs[0]!;
+    assert.equal(run.status, "failed");
+    assert.equal(run.error, "provider failed");
+    assert.equal(run.failureKind, "provider");
+    assert.equal(run.failureDisposition, "terminal_failed");
+    assert.equal(run.failureMessage, "provider failed");
+    assert.equal(run.resumable, false);
+    assert.equal("failureCode" in run, false);
+    assert.equal("failureRecoverability" in run, false);
+    assert.equal("retryAfterMs" in run, false);
+    assert.equal("blockedAt" in run, false);
+    assert.equal("failedStageId" in run, false);
+  });
 });
 
 describe("store stage notices", () => {

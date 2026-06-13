@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added native checkpoint/rewind support through the new `/rewind` slash command, including interactive checkpoint selection, per-checkpoint diff previews, restore confirmation, and safety checkpoints before restoring files.
+- Added the `CheckpointEngine` and `RewindCoordinator` runtime, typed `rewind` settings (`enabled`, checkpoint retention, session-start and mutating-turn checkpoint toggles, tree/fork prompts, and safe untracked-file limits), automatic checkpoints on session start and mutating turns, interactive bash checkpoints, and a footer checkpoint-count status slot.
+
+### Changed
+
+- Changed the `/rewind` checkpoint confirmation prompt to include a `← back` action between the select and cancel hints, returning interactive checkpoint selection to the checkpoint list instead of requiring users to cancel and restart the command.
+
 ## [0.8.28] - 2026-06-11
 
 ### Added

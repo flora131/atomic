@@ -40,6 +40,12 @@ export type CreateAgentSessionRuntimeFactory = (options: {
 	projectTrustContext?: ProjectTrustContext;
 }) => Promise<CreateAgentSessionRuntimeResult>;
 
+type ForkSessionOptions = {
+	position?: "before" | "at";
+	withSession?: (ctx: ReplacedSessionContext) => Promise<void>;
+	beforeSessionReplacement?: () => Promise<boolean>;
+};
+
 /**
  * Thrown when /import references a JSONL file path that does not exist.
  */
@@ -257,7 +263,7 @@ export class AgentSessionRuntime {
 
 	async fork(
 		entryId: string,
-		options?: { position?: "before" | "at"; withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
+		options?: ForkSessionOptions,
 	): Promise<{ cancelled: boolean; selectedText?: string }> {
 		const position = options?.position ?? "before";
 		const beforeResult = await this.emitBeforeFork(entryId, { position });
@@ -280,6 +286,13 @@ export class AgentSessionRuntime {
 			}
 			targetLeafId = selectedEntry.parentId;
 			selectedText = extractUserMessageText(selectedEntry.message.content);
+		}
+
+		if (options?.beforeSessionReplacement) {
+			const shouldContinue = await options.beforeSessionReplacement();
+			if (!shouldContinue) {
+				return { cancelled: true };
+			}
 		}
 
 		const previousSessionFile = this.session.sessionFile;

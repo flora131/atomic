@@ -21,6 +21,25 @@ import type { QuestionParams } from "../../packages/coding-agent/src/core/tools/
 
 const EXPLORE_LABEL = "I have more to explore or ask about.";
 
+describe("toolResultHasChatAnswer", () => {
+  test("detects chat answers in tool result details", () => {
+    assert.equal(
+      toolResultHasChatAnswer({
+        details: { answers: [{ kind: "option" }, { kind: "chat" }], cancelled: false },
+      }),
+      true,
+    );
+  });
+
+  test("ignores non-chat or malformed results", () => {
+    assert.equal(toolResultHasChatAnswer({ details: { answers: [{ kind: "custom" }] } }), false);
+    assert.equal(toolResultHasChatAnswer({ details: { answers: [{ kind: "Chat" }] } }), false);
+    assert.equal(toolResultHasChatAnswer({ details: { answers: [] } }), false);
+    assert.equal(toolResultHasChatAnswer({ details: null }), false);
+    assert.equal(toolResultHasChatAnswer(undefined), false);
+  });
+});
+
 describe("readinessResultMeansAdvance", () => {
   test("exact advance label → advance", () => {
     assert.equal(

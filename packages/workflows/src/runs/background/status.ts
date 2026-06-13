@@ -88,6 +88,7 @@ export interface RunDetail {
   readonly failureCode?: RunSnapshot["failureCode"];
   readonly failureRecoverability?: RunSnapshot["failureRecoverability"];
   readonly failureDisposition?: RunSnapshot["failureDisposition"];
+  readonly failureMessage?: RunSnapshot["failureMessage"];
   readonly failedStageId?: string;
   readonly resumable?: boolean;
   readonly retryAfterMs?: number;
@@ -487,6 +488,7 @@ export function inspectRun(
     failureCode: copy.failureCode,
     failureRecoverability: copy.failureRecoverability,
     failureDisposition: copy.failureDisposition,
+    failureMessage: copy.failureMessage,
     failedStageId: copy.failedStageId,
     resumable: copy.resumable,
     retryAfterMs: copy.retryAfterMs,

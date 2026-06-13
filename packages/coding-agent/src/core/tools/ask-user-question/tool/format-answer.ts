@@ -2,9 +2,9 @@ import { ROW_INTENT_META } from "../state/row-intent.ts";
 import type { QuestionAnswer } from "./types.ts";
 
 /**
- * Continuation message used in the LLM-facing envelope. Two-sentence form —
- * the model needs the "Stop…wait…" directive to know what to do next after the
- * user picks chat instead of answering.
+ * Stop/wait message used in terminating LLM-facing chat envelopes. Two-sentence form —
+ * the model needs the explicit "Stop…wait…" directive to know what to do next
+ * after the user picks chat instead of answering.
  */
 export const CHAT_CONTINUATION_MESSAGE =
 	"User wants to chat about this. Stop the current task flow and wait for the user's next message.";

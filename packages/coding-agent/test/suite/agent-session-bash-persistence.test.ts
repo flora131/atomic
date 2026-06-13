@@ -1,13 +1,36 @@
 import { Buffer } from "node:buffer";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import type { BashResult } from "../../src/core/bash-executor.js";
 import type { BashOperations } from "../../src/core/tools/bash.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 function getEntryTypes(harness: Harness): string[] {
 	return harness.sessionManager.getEntries().map((entry) => entry.type);
+}
+
+function git(cwd: string, args: string[]): string {
+	const result = spawnSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+	if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(" ")} failed`);
+	return result.stdout;
+}
+
+function initializeGitRepo(cwd: string): void {
+	git(cwd, ["init"]);
+	git(cwd, ["config", "user.email", "test@example.com"]);
+	git(cwd, ["config", "user.name", "Test User"]);
+	writeFileSync(join(cwd, "file.txt"), "v1\n");
+	git(cwd, ["add", "file.txt"]);
+	git(cwd, ["commit", "-m", "init"]);
+}
+
+function bashResult(output: string): BashResult {
+	return { output, exitCode: 0, cancelled: false, truncated: false };
 }
 
 describe("AgentSession bash and persistence characterization", () => {
@@ -23,16 +46,23 @@ describe("AgentSession bash and persistence characterization", () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 
-		harness.session.recordBashResult("echo hi", {
-			output: "hi",
-			exitCode: 0,
-			cancelled: false,
-			truncated: false,
-		});
+		harness.session.recordBashResult("echo hi", bashResult("hi"));
 
 		expect(harness.session.hasPendingBashMessages).toBe(false);
 		expect(harness.session.messages[harness.session.messages.length - 1]?.role).toBe("bashExecution");
 		expect(getEntryTypes(harness)).toContain("message");
+	});
+
+	it("does not create a first bash rewind checkpoint for direct dirty recordBashResult without a baseline", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		initializeGitRepo(harness.tempDir);
+		writeFileSync(join(harness.tempDir, "file.txt"), "dirty before direct record\n");
+
+		harness.session.recordBashResult("git status --short", bashResult(" M file.txt\n"));
+
+		expect(harness.session.messages[harness.session.messages.length - 1]?.role).toBe("bashExecution");
+		expect(harness.session.listRewindCheckpoints()).toMatchObject({ ok: true, value: [] });
 	});
 
 	it("defers bash results while streaming and flushes them before the next prompt", async () => {
@@ -72,12 +102,7 @@ describe("AgentSession bash and persistence characterization", () => {
 
 		const firstPrompt = harness.session.prompt("start");
 		await sawToolStart;
-		harness.session.recordBashResult("echo hi", {
-			output: "hi",
-			exitCode: 0,
-			cancelled: false,
-			truncated: false,
-		});
+		harness.session.recordBashResult("echo hi", bashResult("hi"));
 
 		expect(harness.session.hasPendingBashMessages).toBe(true);
 		expect(harness.session.messages.some((message) => message.role === "bashExecution")).toBe(false);
@@ -103,6 +128,51 @@ describe("AgentSession bash and persistence characterization", () => {
 
 		expect(result.output).toContain("hello");
 		expect(harness.session.messages[harness.session.messages.length - 1]?.role).toBe("bashExecution");
+	});
+
+	it("does not create a first bash rewind checkpoint for a dirty read-only executeBash", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		initializeGitRepo(harness.tempDir);
+		writeFileSync(join(harness.tempDir, "file.txt"), "dirty before bash\n");
+		const operations: BashOperations = {
+			exec: async (_command, _cwd, options) => {
+				options.onData(Buffer.from(" M file.txt\n"));
+				return { exitCode: 0 };
+			},
+		};
+
+		const result = await harness.session.executeBash("git status --short", undefined, { operations });
+
+		expect(result.output).toContain("file.txt");
+		expect(harness.session.messages[harness.session.messages.length - 1]?.role).toBe("bashExecution");
+		expect(harness.session.listRewindCheckpoints()).toMatchObject({ ok: true, value: [] });
+	});
+
+	it("creates a first bash rewind checkpoint for a dirty mutating executeBash", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		initializeGitRepo(harness.tempDir);
+		writeFileSync(join(harness.tempDir, "file.txt"), "dirty before bash\n");
+		const operations: BashOperations = {
+			exec: async (_command, _cwd, options) => {
+				writeFileSync(join(harness.tempDir, "created-by-bash.txt"), "created by bash\n");
+				options.onData(Buffer.from("created\n"));
+				return { exitCode: 0 };
+			},
+		};
+
+		await harness.session.executeBash("printf created > created-by-bash.txt", undefined, { operations });
+
+		const listed = harness.session.listRewindCheckpoints();
+		expect(listed.ok).toBe(true);
+		if (!listed.ok) throw new Error(listed.error);
+		expect(listed.value).toHaveLength(1);
+		expect(listed.value[0]).toMatchObject({
+			trigger: "turn",
+			description: "Interactive bash: printf created > created-by-bash.txt",
+			toolNames: ["bash"],
+		});
 	});
 
 	it("cancels running bash commands with abortBash", async () => {
@@ -185,12 +255,7 @@ describe("AgentSession bash and persistence characterization", () => {
 			}
 		});
 
-		harness.session.recordBashResult("echo hi", {
-			output: "hi",
-			exitCode: 0,
-			cancelled: false,
-			truncated: false,
-		});
+		harness.session.recordBashResult("echo hi", bashResult("hi"));
 
 		expect(messageEndRoles).toEqual([]);
 	});

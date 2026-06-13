@@ -63,6 +63,10 @@ describe("subagent model fallback helpers", () => {
       message: "localized wrapper",
       diagnostics: [{ error: { message: "service unavailable" } }],
     }), true);
+    assert.equal(isRetryableModelFailure({
+      message: "outer provider failure",
+      diagnostics: [{ response: { body: { error: { status: 403 } } } }],
+    }), true);
   });
 
   test("retry classifier uses status, code, name, and causes", () => {

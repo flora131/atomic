@@ -118,6 +118,38 @@ describe("buildStagePromptAdapter", () => {
     assert.equal(result.answers[0]!.answer, "teal");
   });
 
+  test("Chat about this sentinel maps to kind chat before option or custom matching", () => {
+    const adapter = buildStagePromptAdapter(
+      "p",
+      "ask_user_question",
+      {
+        questions: [
+          {
+            question: "Continue?",
+            options: [{ label: "Chat about this" }, { label: "Continue" }],
+          },
+        ],
+      },
+      1,
+    )!;
+
+    for (const text of ["Chat about this", "  chat ABOUT this  "]) {
+      const result = adapter.buildResult({ text }) as BuiltResult;
+      assert.equal(result.cancelled, false);
+      assert.deepEqual(result.answers, [
+        { questionIndex: 0, question: "Continue?", kind: "chat", answer: "Chat about this" },
+      ]);
+    }
+  });
+
+  test("structured Chat about this response maps to kind chat", () => {
+    const adapter = buildStagePromptAdapter("p", "ask_user_question", COLOR_ARGS, 1)!;
+    const result = adapter.buildResult(coerceStageInputAnswer({ answers: [{ answer: "Chat about this" }] })) as BuiltResult;
+    assert.equal(result.cancelled, false);
+    assert.equal(result.answers[0]!.kind, "chat");
+    assert.equal(result.answers[0]!.answer, "Chat about this");
+  });
+
   test("explicit optionLabels take precedence over text", () => {
     const adapter = buildStagePromptAdapter("p", "ask_user_question", COLOR_ARGS, 1)!;
     const result = adapter.buildResult({ optionLabels: ["Red"], text: "ignored" }) as BuiltResult;
@@ -157,6 +189,29 @@ describe("buildStagePromptAdapter", () => {
     assert.equal(result.answers[0]!.kind, "multi");
     assert.equal(result.answers[0]!.answer, null);
     assert.deepEqual(result.answers[0]!.selected, ["Red", "Blue"]);
+  });
+
+  test("multiSelect Chat about this sentinel maps to kind chat", () => {
+    const adapter = buildStagePromptAdapter(
+      "p",
+      "ask_user_question",
+      {
+        questions: [
+          {
+            question: "Pick colors",
+            multiSelect: true,
+            options: [{ label: "Red" }, { label: "Green" }, { label: "Blue" }],
+          },
+        ],
+      },
+      1,
+    )!;
+    for (const answer of [{ text: "red, Chat about this" }, { optionLabels: ["Red", " chat about this "] }]) {
+      const result = adapter.buildResult(answer) as BuiltResult;
+      assert.equal(result.answers[0]!.kind, "chat");
+      assert.equal(result.answers[0]!.answer, "Chat about this");
+      assert.equal(result.answers[0]!.selected, undefined);
+    }
   });
 
   test("readiness-gate advance label resolves to the advance option", () => {

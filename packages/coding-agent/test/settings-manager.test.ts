@@ -110,6 +110,58 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("rewind settings", () => {
+		it("returns rewind defaults for in-memory settings", () => {
+			const manager = SettingsManager.inMemory();
+
+			expect(manager.getRewindSettings()).toMatchObject({
+				enabled: true,
+				maxCheckpoints: 50,
+				checkpointOnSessionStart: true,
+				checkpointOnMutatingTurn: true,
+				promptOnTree: true,
+				promptOnFork: true,
+				maxUntrackedFileBytes: 10 * 1024 * 1024,
+				maxUntrackedDirFiles: 200,
+			});
+			expect(manager.getRewindSettings().ignoredDirNames).toContain("node_modules");
+		});
+
+		it("merges partial rewind settings and clamps numeric values", () => {
+			const manager = SettingsManager.inMemory({
+				rewind: {
+					enabled: false,
+					maxCheckpoints: 0,
+					checkpointOnMutatingTurn: false,
+					maxUntrackedFileBytes: Number.POSITIVE_INFINITY,
+					maxUntrackedDirFiles: 200_000,
+				},
+			});
+
+			expect(manager.getRewindSettings()).toMatchObject({
+				enabled: false,
+				maxCheckpoints: 1,
+				checkpointOnSessionStart: true,
+				checkpointOnMutatingTurn: false,
+				maxUntrackedFileBytes: 10 * 1024 * 1024,
+				maxUntrackedDirFiles: 100_000,
+			});
+		});
+
+		it("updates rewind settings without dropping unrelated settings", async () => {
+			const manager = SettingsManager.inMemory({ theme: "dark", rewind: { maxCheckpoints: 7 } });
+
+			manager.setRewindSettings({ checkpointOnSessionStart: false });
+			await manager.flush();
+
+			expect(manager.getTheme()).toBe("dark");
+			expect(manager.getRewindSettings()).toMatchObject({
+				maxCheckpoints: 7,
+				checkpointOnSessionStart: false,
+			});
+		});
+	});
+
 	describe("packages migration", () => {
 		it("should keep local-only extensions in extensions array", () => {
 			const settingsPath = join(agentDir, "settings.json");

@@ -63,6 +63,17 @@ function formatModelValidationError(failures: readonly ModelResolutionFailure[])
   return lines.join("\n");
 }
 
+function invalidFallbackThinkingLevelFailure(
+  input: string,
+  index: number,
+  level: string,
+): ModelResolutionFailure {
+  return {
+    input,
+    reason: `invalid fallbackThinkingLevels[${index}] "${level}"; expected one of ${WORKFLOW_THINKING_LEVELS.join(", ")}`,
+  };
+}
+
 function isModelObject(value: WorkflowModelValue): value is NonNullable<CreateAgentSessionOptions["model"]> {
   return typeof value !== "string";
 }
@@ -182,7 +193,9 @@ export function buildModelCandidates(input: {
     const compatLevel = input.fallbackThinkingLevels?.[index];
     if (split.level === undefined && compatLevel !== undefined) {
       if (!WORKFLOW_THINKING_LEVEL_SET.has(compatLevel)) {
-        throw new WorkflowModelValidationError([{ input: trimmedFallback, reason: `invalid fallbackThinkingLevels[${index}] "${compatLevel}"; expected one of ${WORKFLOW_THINKING_LEVELS.join(", ")}` }]);
+        throw new WorkflowModelValidationError([
+          invalidFallbackThinkingLevelFailure(trimmedFallback, index, compatLevel),
+        ]);
       }
       rawValues.push(`${trimmedFallback}:${compatLevel}`);
     } else {
@@ -308,7 +321,7 @@ export async function validateWorkflowModels(input: {
 const RETRYABLE_MODEL_FAILURE_PATTERNS: readonly RegExp[] = [
   /rate\s*limit/i,
   /too\s*many\s*requests/i,
-  /\b429\b/,
+  /\b(?:401|403|429|5\d{2})\b/,
   /quota/i,
   /billing/i,
   /credit/i,
@@ -337,6 +350,7 @@ const RETRYABLE_MODEL_FAILURE_PATTERNS: readonly RegExp[] = [
 const NON_RETRYABLE_FAILURE_PATTERNS: readonly RegExp[] = [
   /command failed/i,
   /tests? failed/i,
+  /tool(?:\s+call)?\s+failed/i,
   /shell/i,
   /missing file/i,
   /no such file/i,
@@ -386,6 +400,9 @@ const FALLBACKABLE_FAILURE_KINDS: ReadonlySet<ModelFallbackFailureKind> = new Se
   "network_timeout",
   "model_unavailable",
 ]);
+
+const MODEL_FAILURE_SIGNAL_MAX_DEPTH = 8;
+const MODEL_FAILURE_NESTED_KEYS = ["error", "response", "body"] as const;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : undefined;
@@ -449,6 +466,29 @@ function diagnosticErrors(value: unknown): readonly unknown[] {
     errors.push(diagnosticError ?? diagnostic);
   }
   return errors;
+}
+
+type NestedFailureSignalValue = {
+  readonly value: unknown;
+  readonly source?: ModelFallbackFailureSource;
+};
+
+function nestedSignalValues(value: unknown): readonly NestedFailureSignalValue[] {
+  if (Array.isArray(value)) return value.map((item) => ({ value: item }));
+  const record = asRecord(value);
+  if (record === undefined) return [];
+
+  const nested: NestedFailureSignalValue[] = [];
+  for (const diagnosticError of diagnosticErrors(value)) {
+    nested.push({ value: diagnosticError, source: "diagnostic" });
+  }
+  const cause = causeOf(value);
+  if (cause !== undefined && cause !== null) nested.push({ value: cause });
+  for (const key of MODEL_FAILURE_NESTED_KEYS) {
+    const item = record[key];
+    if (item !== undefined && item !== null) nested.push({ value: item });
+  }
+  return nested;
 }
 
 function normalizeCode(value: string | number | undefined): string | undefined {
@@ -644,8 +684,9 @@ function structuredSignal(
   value: unknown,
   seen: Set<unknown>,
   source?: ModelFallbackFailureSource,
+  depth = 0,
 ): ModelFallbackFailureSignal | undefined {
-  if (value === undefined || value === null || seen.has(value)) return undefined;
+  if (value === undefined || value === null || depth > MODEL_FAILURE_SIGNAL_MAX_DEPTH || seen.has(value)) return undefined;
   if (typeof value === "object") seen.add(value);
 
   const stopReason = stopReasonFrom(value)?.toLowerCase();
@@ -660,20 +701,13 @@ function structuredSignal(
 
   let firstNestedFallbackSignal: ModelFallbackFailureSignal | undefined;
   const nestedSeen = new Set(seen);
-  for (const diagnosticError of diagnosticErrors(value)) {
-    const diagnosticSignal = structuredSignal(diagnosticError, nestedSeen, "diagnostic")
-      ?? fallbackSignalFromMessage(diagnosticError, "diagnostic");
-    if (diagnosticSignal === undefined) continue;
-    if (isRefusalSignal(diagnosticSignal)) return diagnosticSignal;
-    firstNestedFallbackSignal ??= diagnosticSignal;
-  }
-
-  const cause = causeOf(value);
-  const causeSignal = structuredSignal(cause, nestedSeen, source)
-    ?? fallbackSignalFromMessage(cause, source);
-  if (causeSignal !== undefined) {
-    if (isRefusalSignal(causeSignal)) return causeSignal;
-    firstNestedFallbackSignal ??= causeSignal;
+  for (const nested of nestedSignalValues(value)) {
+    const nestedSource = nested.source ?? source;
+    const nestedSignal = structuredSignal(nested.value, nestedSeen, nestedSource, depth + 1)
+      ?? fallbackSignalFromMessage(nested.value, nestedSource);
+    if (nestedSignal === undefined) continue;
+    if (isRefusalSignal(nestedSignal)) return nestedSignal;
+    firstNestedFallbackSignal ??= nestedSignal;
   }
 
   const statusKind = kindFromStatus(statusFrom(value));
@@ -688,8 +722,8 @@ function structuredSignal(
   return undefined;
 }
 
-function messageFromUnknown(value: unknown, seen: Set<unknown>): string | undefined {
-  if (value === undefined || value === null || seen.has(value)) return undefined;
+function messageFromUnknown(value: unknown, seen: Set<unknown>, depth = 0): string | undefined {
+  if (value === undefined || value === null || depth > MODEL_FAILURE_SIGNAL_MAX_DEPTH || seen.has(value)) return undefined;
   if (typeof value === "string") return value.trim().length > 0 ? value : undefined;
   if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
   if (typeof value === "symbol" || typeof value === "function") return undefined;
@@ -699,13 +733,10 @@ function messageFromUnknown(value: unknown, seen: Set<unknown>): string | undefi
   const directMessage = directMessageFrom(value);
   if (directMessage !== undefined) return directMessage;
 
-  for (const diagnosticError of diagnosticErrors(value)) {
-    const diagnosticMessage = messageFromUnknown(diagnosticError, seen);
-    if (diagnosticMessage !== undefined) return diagnosticMessage;
+  for (const nested of nestedSignalValues(value)) {
+    const nestedMessage = messageFromUnknown(nested.value, seen, depth + 1);
+    if (nestedMessage !== undefined) return nestedMessage;
   }
-
-  const causeMessage = messageFromUnknown(causeOf(value), seen);
-  if (causeMessage !== undefined) return causeMessage;
 
   const stopReason = stopReasonFrom(value);
   if (stopReason !== undefined) return `Assistant message ended with stopReason:${stopReason}`;

@@ -2,7 +2,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
-import { FooterComponent, UsageMeterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";
+import { FooterComponent, UsageMeterComponent, formatCwdForFooter, type FooterSession } from "../src/modes/interactive/components/footer.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -23,6 +23,7 @@ function createSession(options: {
 	usage?: AssistantUsage;
 	contextPercent?: number;
 	contextWindow?: number;
+	rewindFooterStatus?: string;
 }): AgentSession {
 	const usage = options.usage;
 	const entries =
@@ -63,9 +64,16 @@ function createSession(options: {
 		settingsManager: {
 			getCodexFastModeSettings: () => ({ chat: false, workflow: false }),
 		},
+		getRewindFooterStatus: () => options.rewindFooterStatus,
 	};
 
 	return session as unknown as AgentSession;
+}
+
+function createStructuralFooterSession(): FooterSession {
+	const session = createSession({ sessionName: "" }) as FooterSession & { getRewindFooterStatus?: () => string | undefined };
+	delete session.getRewindFooterStatus;
+	return session;
 }
 
 function createFooterData(providerCount: number): ReadonlyFooterDataProvider {
@@ -156,6 +164,20 @@ describe("FooterComponent width handling", () => {
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 		}
+	});
+
+	it("renders rewind checkpoint status while idle", () => {
+		const session = createSession({ sessionName: "", rewindFooterStatus: "◆ 3 checkpoints" });
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		expect(footer.render(120)[0]).toContain("◆ 3 checkpoints");
+	});
+
+	it("renders structural embedded sessions without rewind status capability", () => {
+		const footer = new FooterComponent(createStructuralFooterSession(), createFooterData(1));
+
+		expect(() => footer.render(120)).not.toThrow();
+		expect(footer.render(120)[0]).toContain("test-model");
 	});
 
 	it("shows the latest cache hit rate when cache usage is present", () => {

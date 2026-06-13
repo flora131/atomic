@@ -4672,6 +4672,12 @@ export async function run<TInputs extends WorkflowInputValues>(
           }
           return result;
         } catch (err) {
+          const meta = innerCtx.__sessionMeta();
+          if (meta.sessionId !== undefined || meta.sessionFile !== undefined) {
+            activeStore.recordStageSession(runId, stageId, meta);
+          }
+          applyModelFallbackMeta(innerCtx.__modelFallbackMeta());
+
           const workflowExitAbort = ownController.signal.aborted
             ? currentWorkflowExitAbortReason()
             : undefined;

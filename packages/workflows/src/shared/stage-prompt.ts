@@ -73,6 +73,17 @@ function normalizeLabel(value: string): string {
   return value.trim().toLowerCase();
 }
 
+const CHAT_ABOUT_THIS_LABEL = "Chat about this";
+const CHAT_ABOUT_THIS_NORMALIZED = normalizeLabel(CHAT_ABOUT_THIS_LABEL);
+
+function isChatSentinel(value: string): boolean {
+  return normalizeLabel(value) === CHAT_ABOUT_THIS_NORMALIZED;
+}
+
+function chatAnswer(question: StageInputQuestion): BuiltAnswer {
+  return { questionIndex: 0, question: question.question, kind: "chat", answer: CHAT_ABOUT_THIS_LABEL };
+}
+
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -239,27 +250,6 @@ export function parseAskUserQuestionArgs(
   return questions.length > 0 ? questions : undefined;
 }
 
-/**
- * Sentinel label for the chat escape hatch. Matches the `ROW_INTENT_META.chat.label`
- * in the coding-agent package. Duplicated here as a literal to avoid a cross-package
- * import; the reserved-label guard in validate-questionnaire already prevents an
- * authored option from using this label.
- */
-const CHAT_ABOUT_THIS_LABEL = "Chat about this";
-const CHAT_ABOUT_THIS_NORMALIZED = normalizeLabel(CHAT_ABOUT_THIS_LABEL);
-
-function isChatSentinel(value: string): boolean {
-  return normalizeLabel(value) === CHAT_ABOUT_THIS_NORMALIZED;
-}
-
-function answerChat(question: StageInputQuestion): BuiltAnswer {
-  return {
-    questionIndex: 0,
-    question: question.question,
-    kind: "chat",
-    answer: CHAT_ABOUT_THIS_LABEL,
-  };
-}
 
 /**
  * Resolve a desired answer string against a single-select question's options.
@@ -268,12 +258,10 @@ function answerChat(question: StageInputQuestion): BuiltAnswer {
  * a typed ("custom") answer.
  */
 function answerSingle(question: StageInputQuestion, desired: string): BuiltAnswer {
+  if (isChatSentinel(desired)) return chatAnswer(question);
   const normalized = normalizeLabel(desired);
   // Chat sentinel takes priority over authored options — the label is reserved so
   // no option can legitimately match it.
-  if (isChatSentinel(desired)) {
-    return answerChat(question);
-  }
   const byLabel = question.options.find((option) => normalizeLabel(option.label) === normalized);
   if (byLabel) {
     return { questionIndex: 0, question: question.question, kind: "option", answer: byLabel.label };
@@ -292,6 +280,7 @@ function answerSingle(question: StageInputQuestion, desired: string): BuiltAnswe
 }
 
 function answerMulti(question: StageInputQuestion, candidates: readonly string[]): BuiltAnswer {
+  if (candidates.some(isChatSentinel)) return chatAnswer(question);
   const selected: string[] = [];
   for (const candidate of candidates) {
     const normalized = normalizeLabel(candidate);
@@ -324,7 +313,7 @@ function buildResult(
         ? answer.optionLabels
         : (answer.text ?? "").split(",").map((part) => part.trim()).filter((part) => part.length > 0);
     if (candidates.some(isChatSentinel)) {
-      return { answers: [answerChat(question)], cancelled: false } satisfies BuiltResult;
+      return { answers: [chatAnswer(question)], cancelled: false } satisfies BuiltResult;
     }
     return { answers: [answerMulti(question, candidates)], cancelled: false } satisfies BuiltResult;
   }

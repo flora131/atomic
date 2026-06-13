@@ -1,0 +1,105 @@
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import { describe, expect, it } from "vitest";
+import { createHarness } from "../suite/harness.ts";
+import { assistantMsg } from "../utilities.ts";
+
+
+describe("AgentSession rewind restore guard", () => {
+	it("refuses restore while streaming before delegating to the coordinator", async () => {
+		const harness = await createHarness();
+		try {
+			Object.defineProperty(harness.session, "isStreaming", { configurable: true, get: () => true });
+			let delegated = false;
+			(harness.session as unknown as { _rewindCoordinator: { restoreFilesToCheckpoint: () => never } })._rewindCoordinator.restoreFilesToCheckpoint = () => {
+				delegated = true;
+				throw new Error("restore should not be delegated while streaming");
+			};
+
+			const restored = harness.session.restoreRewindFiles("checkpoint-id");
+
+			expect(restored).toMatchObject({ ok: false, error: "RestoreWhileStreaming" });
+			expect(restored.message).toContain("current turn finishes");
+			expect(delegated).toBe(false);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("refuses restore while bash is running before delegating to the coordinator", async () => {
+		const harness = await createHarness();
+		try {
+			Object.defineProperty(harness.session, "isStreaming", { configurable: true, get: () => false });
+			Object.defineProperty(harness.session, "isBashRunning", { configurable: true, get: () => true });
+			let delegated = false;
+			(harness.session as unknown as { _rewindCoordinator: { restoreFilesToCheckpoint: () => never } })._rewindCoordinator.restoreFilesToCheckpoint = () => {
+				delegated = true;
+				throw new Error("restore should not be delegated while bash is running");
+			};
+
+			const restored = harness.session.restoreRewindFiles("checkpoint-id");
+
+			expect(restored).toMatchObject({ ok: false, error: "RestoreWhileStreaming" });
+			expect(restored.message).toContain("bash command finishes");
+			expect(delegated).toBe(false);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("does not let rewind event failures reject the agent event queue", async () => {
+		const harness = await createHarness();
+		try {
+			const session = harness.session as unknown as {
+				_handleAgentEvent: (event: AgentEvent) => void;
+				_agentEventQueue: Promise<void>;
+				_rewindCoordinator: { startTurn: () => void };
+			};
+			session._rewindCoordinator.startTurn = () => {
+				throw new Error("rewind boom");
+			};
+
+			session._handleAgentEvent({ type: "turn_start" });
+
+			await expect(session._agentEventQueue).resolves.toBeUndefined();
+			expect(harness.eventsOfType("turn_start")).toHaveLength(1);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("advances turn indexes when rewind turn finalization fails", async () => {
+		const turnEvents: string[] = [];
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("turn_start", (event) => {
+						turnEvents.push(`start:${event.turnIndex}`);
+					});
+					pi.on("turn_end", (event) => {
+						turnEvents.push(`end:${event.turnIndex}`);
+					});
+				},
+			],
+		});
+		try {
+			const session = harness.session as unknown as {
+				_handleAgentEvent: (event: AgentEvent) => void;
+				_agentEventQueue: Promise<void>;
+				_rewindCoordinator: { finalizeTurnCheckpoint: () => void };
+			};
+			session._rewindCoordinator.finalizeTurnCheckpoint = () => {
+				throw new Error("rewind finalize boom");
+			};
+
+			session._handleAgentEvent({ type: "agent_start" });
+			session._handleAgentEvent({ type: "turn_start" });
+			session._handleAgentEvent({ type: "turn_end", message: assistantMsg("done"), toolResults: [] } as AgentEvent);
+			session._handleAgentEvent({ type: "turn_start" });
+
+			await expect(session._agentEventQueue).resolves.toBeUndefined();
+			expect(turnEvents).toEqual(["start:0", "end:0", "start:1"]);
+		} finally {
+			harness.cleanup();
+		}
+	});
+});

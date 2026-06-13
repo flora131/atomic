@@ -35,11 +35,7 @@ export function buildQuestionnaireResponse(result: QuestionnaireResult | null | 
 		});
 	}
 	const containsChatAnswer = hasChatAnswer(result);
-	const segments: string[] = [];
-	for (let i = 0; i < params.questions.length; i++) {
-		const a = result.answers.find((x) => x.questionIndex === i);
-		if (a) segments.push(buildAnswerSegment(a));
-	}
+	const segments = buildAnswerSegments(result.answers, params.questions.length);
 	if (containsChatAnswer) {
 		const answerSegments = segments.length > 0 ? ` ${segments.join(" ")}` : "";
 		// Mixed-dialog precedence: signal-only chat WINS. In a multi-question dialog where one
@@ -64,6 +60,15 @@ export function buildQuestionnaireResponse(result: QuestionnaireResult | null | 
  * Format a single answer segment for the envelope. Pure of `a`. The `"Q"="A"` shape and
  * the optional `selected preview:` / `user notes:` suffixes are pinned by envelope tests.
  */
+function buildAnswerSegments(answers: readonly QuestionAnswer[], questionCount: number): string[] {
+	const segments: string[] = [];
+	for (let questionIndex = 0; questionIndex < questionCount; questionIndex++) {
+		const answer = answers.find((candidate) => candidate.questionIndex === questionIndex);
+		if (answer) segments.push(buildAnswerSegment(answer));
+	}
+	return segments;
+}
+
 export function buildAnswerSegment(a: QuestionAnswer): string {
 	const parts: string[] = [`"${a.question}"="${formatAnswerScalar(a, "envelope")}"`];
 	if (a.preview && a.preview.length > 0) parts.push(`selected preview: ${a.preview}`);

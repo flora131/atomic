@@ -291,6 +291,42 @@ export default function(pi) {
 			expect(existsSync(markerPath)).toBe(false);
 		});
 
+		it("preserves declined borrowed project-local trust across reloads without trust callbacks", async () => {
+			const repoDir = join(tempDir, "declined-borrowed-reload-repo");
+			const borrowedExtensionsDir = join(repoDir, ".atomic", "extensions");
+			const borrowedExtension = join(borrowedExtensionsDir, "borrowed.ts");
+			const markerPath = join(tempDir, "declined-borrowed-reload-loaded");
+			mkdirSync(borrowedExtensionsDir, { recursive: true });
+			writeFileSync(
+				borrowedExtension,
+				`import { writeFileSync } from "node:fs";\nexport default function() { writeFileSync(${JSON.stringify(markerPath)}, "loaded"); }\n`,
+			);
+
+			let trustCalls = 0;
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager: SettingsManager.inMemory(),
+				additionalExtensionPaths: [repoDir],
+			});
+
+			await loader.reload({
+				resolveBorrowedProjectTrust: () => {
+					trustCalls += 1;
+					return false;
+				},
+			});
+
+			expect(loader.getExtensions().extensions.map((extension) => extension.path)).not.toContain(borrowedExtension);
+			expect(existsSync(markerPath)).toBe(false);
+
+			await loader.reload();
+
+			expect(trustCalls).toBe(1);
+			expect(loader.getExtensions().extensions.map((extension) => extension.path)).not.toContain(borrowedExtension);
+			expect(existsSync(markerPath)).toBe(false);
+		});
+
 		it("does not preload a project-local-only additional path as a root extension", async () => {
 			const repoDir = join(tempDir, "project-local-only-borrowed-repo");
 			const skillDir = join(repoDir, ".atomic", "skills", "borrowed-skill");

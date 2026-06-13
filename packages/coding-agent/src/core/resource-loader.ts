@@ -416,9 +416,12 @@ export class DefaultResourceLoader implements ResourceLoader {
 		} else if (preTrustExtensions) {
 			this.settingsManager.setProjectTrusted(initialProjectTrusted);
 		}
-		this.trustedBorrowedProjectLocalSources = options?.resolveBorrowedProjectTrust
-			? await this.resolveTrustedBorrowedProjectLocalSources(options.resolveBorrowedProjectTrust, preTrustExtensions)
-			: undefined;
+		if (options?.resolveBorrowedProjectTrust) {
+			this.trustedBorrowedProjectLocalSources = await this.resolveTrustedBorrowedProjectLocalSources(
+				options.resolveBorrowedProjectTrust,
+				preTrustExtensions,
+			);
+		}
 		const resolveSpan = startTimingSpan("DefaultResourceLoader.reload.resolvePackageResourcePaths");
 		const { resolvedPaths, cliExtensionPaths, builtinPackagePaths } = await this.resolvePackageResourcePaths({
 			trustedBorrowedProjectLocalSources: this.trustedBorrowedProjectLocalSources,

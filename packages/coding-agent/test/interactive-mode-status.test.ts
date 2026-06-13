@@ -257,6 +257,8 @@ describe("InteractiveMode.showExtensionCustom host custom UI state", () => {
 				requestRender: vi.fn(),
 			},
 			blockingInlineCustomUiDepth: 0,
+			deferredInlineCustomUiFocusDepth: 0,
+			pendingInlineCustomUiFocus: undefined,
 			hostCustomUiStateListeners: new Set(),
 		};
 		Object.setPrototypeOf(fakeThis, (InteractiveMode as any).prototype);

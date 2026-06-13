@@ -502,6 +502,7 @@ export interface PiOverlayHandle {
 export interface PiHostCustomUiState {
   blockingInlineCustomUiDepth: number;
   blockingInlineCustomUiActive: boolean;
+  blockingInlineCustomUiFocusDeferred?: boolean;
 }
 
 export type PiHostCustomUiStateListener = (state: PiHostCustomUiState) => void;
@@ -513,6 +514,8 @@ export interface PiCustomOverlayOptions {
    * place of the editor until the factory's `done()` callback fires.
    */
   overlay: boolean;
+  /** Keep host inline custom UI pending in the background while this overlay is visible. */
+  deferInlineCustomUiFocus?: boolean;
   /**
    * Geometry / anchoring intended for pi-tui's `resolveOverlayLayout`.
    * NOT forwarded by current pi interactive `custom()` — see
@@ -647,6 +650,8 @@ export interface PiUISurface {
   getHostCustomUiState?: () => PiHostCustomUiState;
   /** Observe host-owned inline custom UI focus state changes, if exposed by the host. */
   onHostCustomUiStateChange?: (listener: PiHostCustomUiStateListener) => () => void;
+  /** Move focus to a mounted host-owned inline custom UI, if one is pending. */
+  focusHostInlineCustomUi?: () => boolean;
   pasteToEditor?: (text: string) => void;
   setEditorText?: (text: string) => void;
   getEditorText?: () => string;

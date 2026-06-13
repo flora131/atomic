@@ -153,8 +153,10 @@ export interface ChatRenderSettings {
 export interface HostCustomUiState {
 	/** Number of active non-overlay host custom UI mounts. */
 	blockingInlineCustomUiDepth: number;
-	/** True when at least one non-overlay host custom UI currently owns focus. */
+	/** True when at least one non-overlay host custom UI is mounted and blocking. */
 	blockingInlineCustomUiActive: boolean;
+	/** True when the active inline custom UI is waiting behind an overlay that kept focus. */
+	blockingInlineCustomUiFocusDeferred?: boolean;
 }
 
 export type HostCustomUiStateListener = (state: HostCustomUiState) => void;
@@ -184,6 +186,9 @@ export interface ExtensionUIContext {
 
 	/** Observe host-owned inline custom UI focus state changes. Returns an unsubscribe function. */
 	onHostCustomUiStateChange?(listener: HostCustomUiStateListener): () => void;
+
+	/** Move focus to a mounted host-owned inline custom UI, if one is pending. */
+	focusHostInlineCustomUi?(): boolean;
 
 	/** Listen to raw terminal input (interactive mode only). Returns an unsubscribe function. */
 	onTerminalInput(handler: TerminalInputHandler): () => void;
@@ -246,6 +251,8 @@ export interface ExtensionUIContext {
 		) => (Component & { dispose?(): void }) | Promise<Component & { dispose?(): void }>,
 		options?: {
 			overlay?: boolean;
+			/** Keep host inline custom UI pending in the background while this overlay is visible. */
+			deferInlineCustomUiFocus?: boolean;
 			/** AbortSignal to programmatically dismiss the custom UI. */
 			signal?: AbortSignal;
 			/** Overlay positioning/sizing options. Can be static or a function for dynamic updates. */

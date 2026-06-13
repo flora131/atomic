@@ -205,12 +205,14 @@ function buildInteractiveHostCustomUi(): {
   customMounts: PiCustomOverlayFactory[];
   overlayHandles: Array<ReturnType<typeof buildOverlayHandle>>;
   overlayShows: () => number;
+  focusTargets: unknown[];
   customPromises: Promise<unknown>[];
 } {
   initTheme("dark");
   const customMounts: PiCustomOverlayFactory[] = [];
   const customPromises: Promise<unknown>[] = [];
   const overlayHandles: Array<ReturnType<typeof buildOverlayHandle>> = [];
+  const focusTargets: unknown[] = [];
   let overlayShowCount = 0;
   const host: any = {
     editor: {
@@ -223,7 +225,9 @@ function buildInteractiveHostCustomUi(): {
     },
     keybindings: {},
     ui: {
-      setFocus: () => undefined,
+      setFocus: (target: unknown) => {
+        focusTargets.push(target);
+      },
       requestRender: () => undefined,
       showOverlay: () => {
         overlayShowCount++;
@@ -234,6 +238,8 @@ function buildInteractiveHostCustomUi(): {
       hideOverlay: () => undefined,
     },
     blockingInlineCustomUiDepth: 0,
+    deferredInlineCustomUiFocusDepth: 0,
+    pendingInlineCustomUiFocus: undefined,
     hostCustomUiStateListeners: new Set(),
   };
   Object.setPrototypeOf(host, (InteractiveMode as any).prototype);
@@ -257,6 +263,7 @@ function buildInteractiveHostCustomUi(): {
     customMounts,
     overlayHandles,
     overlayShows: () => overlayShowCount,
+    focusTargets,
     customPromises,
   };
 }
@@ -636,6 +643,47 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     await Promise.allSettled(customPromises);
   });
 
+  test("hiding the graph focuses the pending main-chat inline custom UI (#1353)", async () => {
+    const { ui, focusTargets, customPromises } = buildInteractiveHostCustomUi();
+    const store = createStore();
+    const adapter = buildGraphOverlayAdapter({ ui }, store);
+
+    adapter.open("run-1");
+    await Promise.resolve();
+
+    let finishInline!: (value: string) => void;
+    const inlineComponent: PiCustomComponent = {
+      render: () => ["QUESTION"],
+      invalidate: () => undefined,
+    };
+    const inlinePromise = ui.custom!(
+      (_tui, _theme, _keybindings, done: (value: string) => void) => {
+        finishInline = done;
+        return inlineComponent;
+      },
+      { overlay: false } as PiCustomOverlayOptions,
+    ) as Promise<unknown>;
+    await Promise.resolve();
+
+    assert.equal(
+      focusTargets.includes(inlineComponent),
+      false,
+      "inline main-chat UI must not steal focus while the graph is visible",
+    );
+
+    adapter.toggle("run-1");
+
+    assert.equal(
+      focusTargets.at(-1),
+      inlineComponent,
+      "exiting/hiding the graph should focus the pending main-chat UI",
+    );
+    finishInline("answered");
+    await assert.doesNotReject(inlinePromise);
+    adapter.close();
+    await Promise.allSettled(customPromises);
+  });
+
   // Regression for issue #1120: retargeting a visible, mounted overlay must
   // restore keyboard focus. pi-tui only dispatches key events to the focused
   // component, so without this the retargeted overlay (e.g. brought to a
@@ -661,7 +709,7 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     assert.equal(focusCalls, 1, "visible retarget must restore keyboard focus (#1120)");
   });
 
-  test("host inline custom UI hides and restores a visible graph overlay without remounting (#1353)", () => {
+  test("host inline custom UI stays pending behind a focused graph overlay (#1353)", () => {
     let renderCalls = 0;
     const { ui, calls } = buildMockUi({
       onRequestRender: () => {
@@ -699,36 +747,30 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     };
 
     hostCustomUi.setActive(true);
-    assert.equal(hidden, true);
-    assert.equal(focused, false);
-    assert.deepEqual(setHiddenCalls, [true]);
-    assert.equal(unfocusCalls, 1);
+    assert.equal(hidden, false, "host question must not hide the graph");
+    assert.equal(focused, true, "graph overlay keeps keyboard focus");
+    assert.deepEqual(setHiddenCalls, []);
+    assert.equal(unfocusCalls, 0);
     assert.ok(
       statusMessages.some(
         (status) =>
-          status.key === "pi-workflows" &&
-          status.value ===
-            "Workflow graph paused while you answer this question. Return to the graph after responding.",
+          status.key === "pi-workflows:main-chat-input" &&
+          status.value === "Main chat needs input — exit graph to answer.",
       ),
-      "yielding to a host question should explain how to return to the graph",
+      "focused graph should hint that main chat has a pending question",
     );
-    assert.equal(calls.length, 1, "host yield must not remount the overlay");
+    assert.equal(calls.length, 1, "host question must not remount the overlay");
 
     hostCustomUi.setActive(false);
     assert.equal(hidden, false);
     assert.equal(focused, true);
-    assert.deepEqual(setHiddenCalls, [true, false]);
-    assert.equal(focusCalls, 1);
-    assert.deepEqual(
-      statusMessages.slice(-2),
-      [
-        { key: "pi-workflows", value: undefined },
-        { key: "pi-workflows", value: "pi-workflows/workflow" },
-      ],
-      "host restore should explicitly clear its paused status before the pane restores its own status",
-    );
-    assert.equal(renderCalls, 1, "host restore must explicitly request a render");
-    assert.equal(calls.length, 1, "host restore must not remount the overlay");
+    assert.deepEqual(setHiddenCalls, []);
+    assert.equal(focusCalls, 0);
+    assert.deepEqual(statusMessages.slice(-1), [
+      { key: "pi-workflows:main-chat-input", value: undefined },
+    ]);
+    assert.equal(renderCalls, 0, "host question state should not force graph remount/render");
+    assert.equal(calls.length, 1, "host question completion must not remount the overlay");
   });
 
   test("close unsubscribes from host custom UI state changes (#1353)", () => {
@@ -796,7 +838,7 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     assert.equal(calls.length, 1);
   });
 
-  test("store-update refocus does not call focus while host inline custom UI is active (#1353)", () => {
+  test("store-update refocus keeps the graph interactive while host inline custom UI is active (#1353)", () => {
     const { ui, calls } = buildMockUi();
     let hostActive = false;
     ui.getHostCustomUiState = () => ({
@@ -832,10 +874,10 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
       createdAt: Date.now(),
     });
 
-    assert.equal(focusCalls, 0);
+    assert.equal(focusCalls, 1, "graph focus should win over a pending main-chat question");
   });
 
-  test("stage-chat focus hold does not call focus while host inline custom UI is active (#1353)", async () => {
+  test("stage-chat focus hold still focuses while host inline custom UI is active (#1353)", async () => {
     const { ui, calls } = buildMockUi();
     let hostActive = false;
     ui.getHostCustomUiState = () => ({
@@ -862,7 +904,7 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     await delay(180);
     adapter.close();
 
-    assert.equal(focusCalls, 0);
+    assert.ok(focusCalls >= 1, "workflow-local HIL must continue to focus inside the attached pane");
   });
 
   test("visible graph overlay refocuses when detached ctx.ui.editor and confirm prompts appear", async () => {

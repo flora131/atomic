@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed subagent model-fallback failure classification to inspect nested provider error payloads (`diagnostics`, `cause`, `error`, `response`, and `body`), treat authentication/authorization and server status codes as fallbackable model failures, and keep tool-call/runtime failures non-retryable.
+
 ## [0.8.28] - 2026-06-11
 
 ### Changed

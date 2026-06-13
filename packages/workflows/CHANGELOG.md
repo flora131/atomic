@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed workflow model-fallback failure classification to inspect nested provider error payloads (`diagnostics`, `cause`, `error`, `response`, and `body`), treat authentication/authorization and server status codes as fallbackable model failures, keep tool-call/runtime failures non-retryable, surface terminal assistant failure details through workflow run inspection, and preserve stage session/model-fallback metadata when a prompt fails.
+
 ## [0.8.28] - 2026-06-11
 
 ### Added

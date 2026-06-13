@@ -1379,7 +1379,9 @@ export class DefaultPackageManager implements PackageManager {
 				const projectLocalResources = options?.includeProjectLocalResources
 					? this.collectProjectLocalResources(resolved, accumulator, filter, packageMetadata)
 					: false;
-				const shouldAddDirectoryFallback = !projectLocalResources || resolveExtensionEntries(resolved) !== null;
+				const extensionEntries = resolveExtensionEntries(resolved);
+				const shouldAddDirectoryFallback =
+					extensionEntries !== null || (options?.includeProjectLocalResources === true && !projectLocalResources);
 				if (!packageResources && shouldAddDirectoryFallback) {
 					this.addResource(accumulator.extensions, resolved, packageMetadata, true);
 				}

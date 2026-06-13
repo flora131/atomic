@@ -810,6 +810,21 @@ Content`,
 			expect(result.extensions.some((r) => r.path === repoDir)).toBe(false);
 		});
 
+		it("should not add directory fallback when project-local resources are excluded", async () => {
+			const repoDir = join(tempDir, "project-local-excluded");
+			const skillFile = join(repoDir, ".atomic", "skills", "local-skill", "SKILL.md");
+			mkdirSync(join(repoDir, ".atomic", "skills", "local-skill"), { recursive: true });
+			writeFileSync(skillFile, "---\nname: local-skill\ndescription: Local\n---\n");
+
+			const result = await packageManager.resolveExtensionSources([repoDir], {
+				temporary: true,
+				includeProjectLocalResources: false,
+			});
+
+			expect(result.skills).toEqual([]);
+			expect(result.extensions.some((r) => r.path === repoDir)).toBe(false);
+		});
+
 		it("should preserve directory extension fallback when project-local resources are present", async () => {
 			const repoDir = join(tempDir, "borrowed-repo-with-root-extension");
 			const skillFile = join(repoDir, ".atomic", "skills", "local-skill", "SKILL.md");

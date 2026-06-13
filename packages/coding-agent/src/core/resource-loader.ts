@@ -614,6 +614,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const resolvedPaths = await this.packageManager.resolve();
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
 			temporary: true,
+			includeProjectLocalResources: true,
 		});
 		const builtinPackagePaths =
 			this.builtinPackagePaths.length > 0

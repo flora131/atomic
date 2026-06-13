@@ -464,12 +464,12 @@ export class DefaultResourceLoader implements ResourceLoader {
 		// Add CLI paths metadata
 		for (const r of cliExtensionPaths.extensions) {
 			if (!metadataByPath.has(r.path)) {
-				metadataByPath.set(r.path, { source: "cli", scope: "temporary", origin: "top-level" });
+				metadataByPath.set(r.path, r.metadata);
 			}
 		}
 		for (const r of cliExtensionPaths.skills) {
 			if (!metadataByPath.has(r.path)) {
-				metadataByPath.set(r.path, { source: "cli", scope: "temporary", origin: "top-level" });
+				metadataByPath.set(r.path, r.metadata);
 			}
 		}
 
@@ -622,6 +622,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 		return { resolvedPaths, cliExtensionPaths, builtinPackagePaths };
 	}
 
+	private enabledWorkflowResources(resources: ResolvedResource[]): ResolvedResource[] {
+		return resources.filter((resource) => resource.enabled);
+	}
+
 	private enabledPackageWorkflowResources(resources: ResolvedResource[]): ResolvedResource[] {
 		return resources.filter((resource) => resource.enabled && resource.metadata.origin === "package");
 	}
@@ -632,7 +636,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		builtinPackagePaths: ResolvedPaths,
 	): ResolvedResource[] {
 		return [
-			...this.enabledPackageWorkflowResources(cliExtensionPaths.workflows),
+			...this.enabledWorkflowResources(cliExtensionPaths.workflows),
 			...this.enabledPackageWorkflowResources(resolvedPaths.workflows),
 			...this.enabledPackageWorkflowResources(builtinPackagePaths.workflows),
 		];

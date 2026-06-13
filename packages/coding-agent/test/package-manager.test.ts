@@ -689,6 +689,141 @@ Content`,
 			expect(result.themes.some((r) => pathEndsWith(r.path, "dark.json") && r.enabled)).toBe(true);
 		});
 
+		it("should resolve project-local resources from temporary local directory sources", async () => {
+			const repoDir = join(tempDir, "borrowed-repo");
+			mkdirSync(join(repoDir, "extensions"), { recursive: true });
+			mkdirSync(join(repoDir, "skills", "pkg-skill"), { recursive: true });
+			mkdirSync(join(repoDir, ".atomic", "extensions", "atomic-ext"), { recursive: true });
+			mkdirSync(join(repoDir, ".atomic", "skills", "atomic-skill"), { recursive: true });
+			mkdirSync(join(repoDir, ".atomic", "prompts"), { recursive: true });
+			mkdirSync(join(repoDir, ".atomic", "themes"), { recursive: true });
+			mkdirSync(join(repoDir, ".atomic", "workflows"), { recursive: true });
+			mkdirSync(join(repoDir, ".pi", "extensions", "legacy-ext"), { recursive: true });
+			mkdirSync(join(repoDir, ".pi", "skills", "legacy-skill"), { recursive: true });
+			mkdirSync(join(repoDir, ".pi", "prompts"), { recursive: true });
+			mkdirSync(join(repoDir, ".pi", "themes"), { recursive: true });
+			mkdirSync(join(repoDir, ".pi", "workflows"), { recursive: true });
+			mkdirSync(join(repoDir, ".agents", "skills", "agents-skill"), { recursive: true });
+
+			writeFileSync(join(repoDir, "extensions", "pkg.ts"), "export default function() {}");
+			writeFileSync(
+				join(repoDir, "skills", "pkg-skill", "SKILL.md"),
+				"---\nname: pkg-skill\ndescription: Package\n---\n",
+			);
+			writeFileSync(
+				join(repoDir, ".atomic", "extensions", "atomic-ext", "index.ts"),
+				"export default function() {}",
+			);
+			writeFileSync(
+				join(repoDir, ".atomic", "skills", "atomic-skill", "SKILL.md"),
+				"---\nname: atomic-skill\ndescription: Atomic\n---\n",
+			);
+			writeFileSync(join(repoDir, ".atomic", "prompts", "atomic.md"), "Atomic prompt");
+			writeFileSync(join(repoDir, ".atomic", "themes", "atomic.json"), "{}");
+			writeFileSync(join(repoDir, ".atomic", "workflows", "atomic.ts"), "export default {}");
+			writeFileSync(join(repoDir, ".pi", "extensions", "legacy-ext", "index.ts"), "export default function() {}");
+			writeFileSync(
+				join(repoDir, ".pi", "skills", "legacy-skill", "SKILL.md"),
+				"---\nname: legacy-skill\ndescription: Legacy\n---\n",
+			);
+			writeFileSync(join(repoDir, ".pi", "prompts", "legacy.md"), "Legacy prompt");
+			writeFileSync(join(repoDir, ".pi", "themes", "legacy.json"), "{}");
+			writeFileSync(join(repoDir, ".pi", "workflows", "legacy.ts"), "export default {}");
+			writeFileSync(
+				join(repoDir, ".agents", "skills", "agents-skill", "SKILL.md"),
+				"---\nname: agents-skill\ndescription: Agents\n---\n",
+			);
+			writeFileSync(join(repoDir, ".agents", "skills", "root.md"), "---\nname: ignored\ndescription: Ignored\n---\n");
+
+			const result = await packageManager.resolveExtensionSources([repoDir], { temporary: true });
+			const rel = (path: string) => normalizeForMatch(relative(repoDir, path));
+			const enabledRels = (resources: ResolvedResource[]) =>
+				resources.filter((r) => r.enabled).map((r) => rel(r.path));
+
+			expect(enabledRels(result.extensions)).toEqual(
+				expect.arrayContaining([
+					"extensions/pkg.ts",
+					".atomic/extensions/atomic-ext/index.ts",
+					".pi/extensions/legacy-ext/index.ts",
+				]),
+			);
+			expect(enabledRels(result.skills)).toEqual(
+				expect.arrayContaining([
+					"skills/pkg-skill/SKILL.md",
+					".atomic/skills/atomic-skill/SKILL.md",
+					".pi/skills/legacy-skill/SKILL.md",
+					".agents/skills/agents-skill/SKILL.md",
+				]),
+			);
+			expect(enabledRels(result.skills)).not.toContain(".agents/skills/root.md");
+			expect(enabledRels(result.prompts)).toEqual(
+				expect.arrayContaining([".atomic/prompts/atomic.md", ".pi/prompts/legacy.md"]),
+			);
+			expect(enabledRels(result.themes)).toEqual(
+				expect.arrayContaining([".atomic/themes/atomic.json", ".pi/themes/legacy.json"]),
+			);
+			expect(enabledRels(result.workflows)).toEqual(
+				expect.arrayContaining([".atomic/workflows/atomic.ts", ".pi/workflows/legacy.ts"]),
+			);
+
+			const packageSkill = result.skills.find((r) => rel(r.path) === "skills/pkg-skill/SKILL.md");
+			const atomicSkill = result.skills.find((r) => rel(r.path) === ".atomic/skills/atomic-skill/SKILL.md");
+			const agentsSkill = result.skills.find((r) => rel(r.path) === ".agents/skills/agents-skill/SKILL.md");
+			expect(packageSkill?.metadata).toMatchObject({
+				source: repoDir,
+				scope: "temporary",
+				origin: "package",
+				baseDir: repoDir,
+			});
+			expect(atomicSkill?.metadata).toMatchObject({
+				source: repoDir,
+				scope: "temporary",
+				origin: "top-level",
+				baseDir: join(repoDir, ".atomic"),
+			});
+			expect(agentsSkill?.metadata).toMatchObject({
+				source: repoDir,
+				scope: "temporary",
+				origin: "top-level",
+				baseDir: join(repoDir, ".agents"),
+			});
+			expect(result.skills.indexOf(packageSkill!)).toBeLessThan(result.skills.indexOf(atomicSkill!));
+		});
+
+		it("should not fall back to the directory itself when only project-local resources are present", async () => {
+			const repoDir = join(tempDir, "project-local-only");
+			const skillFile = join(repoDir, ".atomic", "skills", "local-skill", "SKILL.md");
+			mkdirSync(join(repoDir, ".atomic", "skills", "local-skill"), { recursive: true });
+			writeFileSync(skillFile, "---\nname: local-skill\ndescription: Local\n---\n");
+
+			const result = await packageManager.resolveExtensionSources([repoDir], { temporary: true });
+
+			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
+			expect(result.extensions.some((r) => r.path === repoDir)).toBe(false);
+		});
+
+		it("should preserve directory extension fallback when project-local resources are present", async () => {
+			const repoDir = join(tempDir, "borrowed-repo-with-root-extension");
+			const skillFile = join(repoDir, ".atomic", "skills", "local-skill", "SKILL.md");
+			mkdirSync(join(repoDir, ".atomic", "skills", "local-skill"), { recursive: true });
+			writeFileSync(join(repoDir, "index.ts"), "export default function() {}\n");
+			writeFileSync(skillFile, "---\nname: local-skill\ndescription: Local\n---\n");
+
+			const result = await packageManager.resolveExtensionSources([repoDir], { temporary: true });
+			const extension = result.extensions.find((r) => r.path === repoDir);
+
+			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
+			expect(extension).toMatchObject({
+				enabled: true,
+				metadata: {
+					source: repoDir,
+					scope: "temporary",
+					origin: "package",
+					baseDir: repoDir,
+				},
+			});
+		});
+
 		it("should stop recursing when a package skill directory contains SKILL.md", async () => {
 			const pkgDir = join(tempDir, "skill-root-pkg");
 			mkdirSync(join(pkgDir, "skills", "root-skill", "nested-skill"), { recursive: true });
@@ -1677,6 +1812,42 @@ Content`,
 			const result = await packageManager.resolve();
 			expect(result.extensions.some((r) => isEnabled(r, "one.ts"))).toBe(true);
 			expect(result.extensions.some((r) => isDisabled(r, "two.ts"))).toBe(true);
+		});
+
+		it("should apply package filters to project-local resources", async () => {
+			const pkgDir = join(tempDir, "project-local-filter-pkg");
+			mkdirSync(join(pkgDir, ".atomic", "extensions"), { recursive: true });
+			mkdirSync(join(pkgDir, ".atomic", "skills", "keep-skill"), { recursive: true });
+			mkdirSync(join(pkgDir, ".atomic", "skills", "skip-skill"), { recursive: true });
+			mkdirSync(join(pkgDir, ".atomic", "prompts"), { recursive: true });
+			writeFileSync(join(pkgDir, ".atomic", "extensions", "keep.ts"), "export default function() {}");
+			writeFileSync(join(pkgDir, ".atomic", "extensions", "skip.ts"), "export default function() {}");
+			writeFileSync(
+				join(pkgDir, ".atomic", "skills", "keep-skill", "SKILL.md"),
+				"---\nname: keep-skill\ndescription: Keep\n---\n",
+			);
+			writeFileSync(
+				join(pkgDir, ".atomic", "skills", "skip-skill", "SKILL.md"),
+				"---\nname: skip-skill\ndescription: Skip\n---\n",
+			);
+			writeFileSync(join(pkgDir, ".atomic", "prompts", "disabled.md"), "Disabled prompt");
+
+			settingsManager.setPackages([
+				{
+					source: pkgDir,
+					extensions: [".atomic/extensions/keep.ts"],
+					skills: ["!.atomic/skills/skip-skill"],
+					prompts: [],
+					themes: [],
+				},
+			]);
+
+			const result = await packageManager.resolve();
+			expect(result.extensions.some((r) => isEnabled(r, "keep.ts"))).toBe(true);
+			expect(result.extensions.some((r) => isDisabled(r, "skip.ts"))).toBe(true);
+			expect(result.skills.some((r) => isEnabled(r, "keep-skill", "includes"))).toBe(true);
+			expect(result.skills.some((r) => isDisabled(r, "skip-skill", "includes"))).toBe(true);
+			expect(result.prompts.some((r) => isDisabled(r, "disabled.md"))).toBe(true);
 		});
 	});
 

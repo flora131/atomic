@@ -185,9 +185,11 @@ interface ResourceAccumulator {
  *   2  user + settings entry (source: "local", scope: "user")
  *   3  user + auto-discovered (source: "auto", scope: "user")
  *   4  package resource (origin: "package")
+ *   5  project-local resources collected from package sources
  */
 function resourcePrecedenceRank(m: PathMetadata): number {
 	if (m.origin === "package") return 4;
+	if (m.source !== "auto" && m.source !== "local") return 5;
 	const scopeBase = m.scope === "project" ? 0 : 2;
 	return scopeBase + (m.source === "local" ? 0 : 1);
 }
@@ -1357,15 +1359,21 @@ export class DefaultPackageManager implements PackageManager {
 		try {
 			const stats = statSync(resolved);
 			if (stats.isFile()) {
-				metadata.baseDir = dirname(resolved);
-				this.addResource(accumulator.extensions, resolved, metadata, true);
+				this.addResource(accumulator.extensions, resolved, { ...metadata, baseDir: dirname(resolved) }, true);
 				return;
 			}
 			if (stats.isDirectory()) {
-				metadata.baseDir = resolved;
-				const resources = this.collectPackageResources(resolved, accumulator, filter, metadata);
-				if (!resources) {
-					this.addResource(accumulator.extensions, resolved, metadata, true);
+				const packageMetadata: PathMetadata = { ...metadata, baseDir: resolved };
+				const packageResources = this.collectPackageResources(resolved, accumulator, filter, packageMetadata);
+				const projectLocalResources = this.collectProjectLocalResources(
+					resolved,
+					accumulator,
+					filter,
+					packageMetadata,
+				);
+				const shouldAddDirectoryFallback = !projectLocalResources || resolveExtensionEntries(resolved) !== null;
+				if (!packageResources && shouldAddDirectoryFallback) {
+					this.addResource(accumulator.extensions, resolved, packageMetadata, true);
 				}
 			}
 		} catch {
@@ -2172,6 +2180,82 @@ export class DefaultPackageManager implements PackageManager {
 			}
 		}
 		return hasAnyDir;
+	}
+
+	private collectProjectLocalResources(
+		sourceRoot: string,
+		accumulator: ResourceAccumulator,
+		filter: PackageFilter | undefined,
+		metadata: PathMetadata,
+	): boolean {
+		let found = false;
+		const projectMetadata: PathMetadata = { ...metadata, origin: "top-level" };
+
+		const addResources = (
+			resourceType: ResourceType,
+			paths: string[],
+			resourceMetadata: PathMetadata,
+			patterns: string[] | undefined,
+		): void => {
+			if (paths.length === 0) return;
+			found = true;
+			const target = this.getTargetMap(accumulator, resourceType);
+			let enabledPaths: Set<string>;
+			if (patterns === undefined) {
+				enabledPaths = new Set(paths);
+			} else if (patterns.length === 0) {
+				enabledPaths = new Set();
+			} else {
+				enabledPaths = applyPatterns(paths, patterns, sourceRoot);
+			}
+			for (const path of paths) {
+				this.addResource(target, path, resourceMetadata, enabledPaths.has(path));
+			}
+		};
+
+		for (const configDir of getProjectConfigDirs(sourceRoot)) {
+			const configMetadata: PathMetadata = { ...projectMetadata, baseDir: configDir };
+			addResources(
+				"extensions",
+				collectAutoExtensionEntries(join(configDir, "extensions")),
+				configMetadata,
+				filter?.extensions,
+			);
+			addResources(
+				"skills",
+				collectAutoSkillEntries(join(configDir, "skills"), "pi"),
+				configMetadata,
+				filter?.skills,
+			);
+			addResources(
+				"prompts",
+				collectAutoPromptEntries(join(configDir, "prompts")),
+				configMetadata,
+				filter?.prompts,
+			);
+			addResources(
+				"themes",
+				collectAutoThemeEntries(join(configDir, "themes")),
+				configMetadata,
+				filter?.themes,
+			);
+			addResources(
+				"workflows",
+				collectResourceFiles(join(configDir, "workflows"), "workflows"),
+				configMetadata,
+				filter?.workflows,
+			);
+		}
+
+		const agentsSkillsDir = join(sourceRoot, ".agents", "skills");
+		addResources(
+			"skills",
+			collectAutoSkillEntries(agentsSkillsDir, "agents"),
+			{ ...projectMetadata, baseDir: dirname(agentsSkillsDir) },
+			filter?.skills,
+		);
+
+		return found;
 	}
 
 	private collectDefaultResources(

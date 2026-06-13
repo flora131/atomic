@@ -1,3 +1,4 @@
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { describe, expect, it } from "vitest";
 import { createHarness } from "../suite/harness.ts";
 
@@ -39,6 +40,27 @@ describe("AgentSession rewind restore guard", () => {
 			expect(restored).toMatchObject({ ok: false, error: "RestoreWhileStreaming" });
 			expect(restored.message).toContain("bash command finishes");
 			expect(delegated).toBe(false);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("does not let rewind event failures reject the agent event queue", async () => {
+		const harness = await createHarness();
+		try {
+			const session = harness.session as unknown as {
+				_handleAgentEvent: (event: AgentEvent) => void;
+				_agentEventQueue: Promise<void>;
+				_rewindCoordinator: { startTurn: () => void };
+			};
+			session._rewindCoordinator.startTurn = () => {
+				throw new Error("rewind boom");
+			};
+
+			session._handleAgentEvent({ type: "turn_start" });
+
+			await expect(session._agentEventQueue).resolves.toBeUndefined();
+			expect(harness.eventsOfType("turn_start")).toHaveLength(1);
 		} finally {
 			harness.cleanup();
 		}

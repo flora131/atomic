@@ -775,7 +775,9 @@ export class AgentSession {
 		// Notify all listeners
 		this._emit(event);
 
-		this._recordRewindEvent(event);
+		this._ignoreRewindErrors(() => {
+			this._recordRewindEvent(event);
+		});
 
 		// Handle session persistence
 		if (event.type === "message_end") {

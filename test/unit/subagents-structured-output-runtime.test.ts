@@ -24,6 +24,11 @@ const objectSchema = {
 };
 const payload = { answer: "ready" };
 
+function assertPrivateFileModeIfSupported(filePath: string): void {
+  if (process.platform === "win32") return;
+  assert.equal(statSync(filePath).mode & 0o777, 0o600);
+}
+
 function withStructuredOutputEnv<T>(schemaPath: string, outputPath: string, fn: () => Promise<T>): Promise<T> {
   const previousSchema = process.env[STRUCTURED_OUTPUT_SCHEMA_ENV];
   const previousCapture = process.env[STRUCTURED_OUTPUT_CAPTURE_ENV];
@@ -134,7 +139,7 @@ describe("subagent structured output parent runtime", () => {
       assert.equal(existsSync(runtime.metadataPath), false);
       assert.equal(runtime.metadataPath, join(dirname(runtime.schemaPath), "output.meta.json"));
       assert.deepEqual(JSON.parse(readFileSync(runtime.schemaPath, "utf-8")), schema);
-      assert.equal(statSync(runtime.schemaPath).mode & 0o777, 0o600);
+      assertPrivateFileModeIfSupported(runtime.schemaPath);
     } finally {
       cleanupStructuredOutputRuntime(runtime);
       rmSync(dir, { recursive: true, force: true });
@@ -359,8 +364,8 @@ describe("subagent structured_output prompt runtime", () => {
         assert.equal(metadata.success, true);
         assert.equal(metadata.terminate, true);
         assert.equal(typeof metadata.capturedAt, "string");
-        assert.equal(statSync(outputPath).mode & 0o777, 0o600);
-        assert.equal(statSync(metadataPath).mode & 0o777, 0o600);
+        assertPrivateFileModeIfSupported(outputPath);
+        assertPrivateFileModeIfSupported(metadataPath);
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });

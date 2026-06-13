@@ -21,6 +21,11 @@ import {
   createStructuredOutputTool as createStructuredOutputToolFromEntrypoint,
 } from "../../packages/coding-agent/src/index.js";
 
+function assertPrivateFileModeIfSupported(filePath: string): void {
+  if (process.platform === "win32") return;
+  assert.equal(statSync(filePath).mode & 0o777, 0o600);
+}
+
 describe("structured_output builtin tool", () => {
   test("uses the supplied schema directly and exposes final-answer prompt metadata", () => {
     const schema = Type.Object({
@@ -134,14 +139,14 @@ describe("structured_output builtin tool", () => {
       assert.equal(result.terminate, true);
       assert.deepEqual(result.details, payload);
       assert.deepEqual(JSON.parse(readFileSync(outputPath, "utf-8")), payload);
-      assert.equal(statSync(outputPath).mode & 0o777, 0o600);
+      assertPrivateFileModeIfSupported(outputPath);
       const metadata = JSON.parse(readFileSync(metadataPath, "utf-8")) as Record<string, unknown>;
       assert.equal(metadata.toolName, "structured_output");
       assert.equal(metadata.toolCallId, "call-1");
       assert.equal(metadata.success, true);
       assert.equal(metadata.terminate, true);
       assert.equal(typeof metadata.capturedAt, "string");
-      assert.equal(statSync(metadataPath).mode & 0o777, 0o600);
+      assertPrivateFileModeIfSupported(metadataPath);
       await assert.rejects(
         () => tool.execute("call-2", { files: ["AGENTS.md"] }, undefined, undefined, {} as Parameters<typeof tool.execute>[4]),
         /already called/,

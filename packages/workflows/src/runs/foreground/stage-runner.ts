@@ -933,6 +933,9 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       const { sdkOptions, outputOptions } = splitPromptOptions(options);
       const runtimeCwd = typeof effectiveStageOptions?.cwd === "string" ? effectiveStageOptions.cwd : process.cwd();
       validatePromptOutputOptions(outputOptions);
+      if (structuredOutputCapture?.called) {
+        throw new Error("atomic-workflows: stage schema supports one prompt() call per stage context because structured_output may be called exactly once. Create a new ctx.stage(...) for each additional schema-backed prompt.");
+      }
       if (adapters.prompt) {
         if (structuredOutputCapture) {
           throw new Error("atomic-workflows: stage schema requires an AgentSessionAdapter so the structured_output tool can be registered.");

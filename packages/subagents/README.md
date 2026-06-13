@@ -468,7 +468,7 @@ Important fields:
 
 ### Tool and extension selection
 
-If `tools` is omitted, `pi-subagents` does not pass `--tools`, so the child gets Pi’s normal builtin tools. If `tools` is present, regular tool names become an explicit allowlist. `mcp:` entries are split out and forwarded as direct MCP selections. Path-like `tools` entries, such as extension paths or `.ts`/`.js` files, are treated as tool-extension paths rather than builtin tool names. When an explicit empty `tools: []` allowlist is combined with `outputSchema`, Atomic passes only `--tools structured_output` so the required final-answer tool is available without restoring default tools; path-only extension entries remain extensions and do not trigger a builtin allowlist by themselves.
+If `tools` is omitted, `pi-subagents` does not pass `--tools`, so the child gets Pi’s normal builtin tools. If `tools` is present, regular tool names become an explicit allowlist. `mcp:` entries are split out and forwarded as direct MCP selections. Path-like `tools` entries, such as extension paths or `.ts`/`.js` files, are treated as tool-extension paths rather than builtin tool names. When an explicit empty `tools: []` allowlist is combined with `outputSchema`, Atomic passes only `--tools structured_output` so the required final-answer tool is available without restoring default tools; path-only extension entries remain extensions and do not trigger a builtin allowlist by themselves. The child prompt-runtime extension is always listed before user/tool extensions so its schema-backed `structured_output` registration is present when Atomic applies explicit tool allowlists.
 
 Examples:
 

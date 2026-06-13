@@ -280,7 +280,7 @@ const decision = await ctx.stage("review-gate", { schema: Decision }).prompt(
 // decision.approved is typed from the schema.
 ```
 
-Atomic registers the canonical `structured_output` tool only for schema-enabled items, automatically adds it to explicit `tools` allowlists, and fails the item if the model completes without the final tool call. The schema is used directly as the tool argument contract, so wrap arrays or primitives in an object field such as `{ items: [...] }` or `{ value: ... }`. `ctx.task`/`ctx.chain`/`ctx.parallel` results expose the parsed value as `result.structured` and keep `result.text` as formatted JSON for handoffs.
+Atomic registers the canonical `structured_output` tool only for schema-enabled items, automatically adds it to explicit `tools` allowlists, and fails the item if the model completes without the final tool call. The schema is used directly as the tool argument contract, so wrap arrays or primitives in an object field such as `{ items: [...] }` or `{ value: ... }`. A schema-backed `StageContext` supports one `prompt()` call because the final-answer tool is an exact-once result contract; create another `ctx.stage(..., { schema })` for another structured prompt. `ctx.task`/`ctx.chain`/`ctx.parallel` results expose the parsed value as `result.structured` and keep `result.text` as formatted JSON for handoffs.
 
 ### Model fallbacks
 

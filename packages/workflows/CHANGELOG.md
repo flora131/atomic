@@ -13,11 +13,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Documented the opt-in `structured_output` workflow path and clarified that ordinary workflow stages do not receive `structured_output` from the default tool registry; schema-enabled items auto-add the runtime tool to explicit `tools` allowlists ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
-- Clarified that workflow `structured_output` gate schemas must be top-level object tool-argument schemas, with arrays and primitives wrapped in object fields before being returned through the terminating tool ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+- Clarified that workflow `structured_output` gate schemas must be top-level object tool-argument schemas, with arrays and primitives wrapped in object fields before being returned through the terminating tool, and documented the one-`prompt()` limit for schema-backed `StageContext` result contracts ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
 - Documented that terminating workflow-stage `structured_output` JSON stays inline even when large, while artifact-sized handoffs should still be saved to files when downstream stages do not need the full payload in context ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
 
 ### Fixed
 
+- Fixed direct workflow tool validation so schema-enabled `task`, `tasks`, `chain`, and `parallel` items reject array or primitive structured-output schemas at argument-validation time instead of failing later during stage setup ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
+- Fixed schema-backed workflow stages to fail with a clear stage-level error when `prompt()` is called more than once on the same `StageContext`, rather than surfacing the lower-level structured-output single-use guard ([#1350](https://github.com/bastani-inc/atomic/issues/1350)).
 - Fixed the workflow graph overlay remaining interactive when the parent/main-chat agent opens `ask_user_question`: the graph keeps focus, the parent question stays pending behind it with a clear “Main chat needs input — exit graph to answer.” status hint, hiding/exiting the graph focuses the pending question, and host custom-UI state changes no longer hide, restore, remount, or repaint the overlay ([#1353](https://github.com/bastani-inc/atomic/issues/1353)).
 
 ## [0.8.28] - 2026-06-11

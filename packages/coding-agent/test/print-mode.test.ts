@@ -25,6 +25,7 @@ type FakeSession = {
 	bindExtensions: ReturnType<typeof vi.fn<(bindings: ExtensionBindings) => Promise<void>>>;
 	subscribe: ReturnType<typeof vi.fn<(listener: AgentSessionEventListener) => () => void>>;
 	emitEvent: (event: AgentSessionEvent) => void;
+	getToolDefinition: ReturnType<typeof vi.fn<(name: string) => { structuredOutput?: true } | undefined>>;
 	prompt: ReturnType<typeof vi.fn<(text: string, options?: { images?: ImageContent[] }) => Promise<void>>>;
 	reload: ReturnType<typeof vi.fn<() => Promise<void>>>;
 };
@@ -92,13 +93,17 @@ function createToolResultMessage(options: {
 	};
 }
 
-function createRuntimeHost(initialMessage: FakeMessage): FakeRuntimeHost {
+function createRuntimeHost(
+	initialMessage: FakeMessage,
+	options: { structuredOutputTools?: readonly string[] } = {},
+): FakeRuntimeHost {
 	const extensionRunner: FakeExtensionRunner = {
 		hasHandlers: (eventType: string) => eventType === "session_shutdown",
 		emit: vi.fn(async () => {}),
 	};
 
 	const state = { messages: [initialMessage] };
+	const structuredOutputTools = new Set(options.structuredOutputTools ?? []);
 	const eventListeners: AgentSessionEventListener[] = [];
 
 	const session: FakeSession = {
@@ -117,6 +122,9 @@ function createRuntimeHost(initialMessage: FakeMessage): FakeRuntimeHost {
 		emitEvent: (event: AgentSessionEvent) => {
 			for (const listener of [...eventListeners]) listener(event);
 		},
+		getToolDefinition: vi.fn((name: string) => (
+			structuredOutputTools.has(name) ? { structuredOutput: true } : undefined
+		)),
 		prompt: vi.fn(async (_text: string, _options?: { images?: ImageContent[] }) => {}),
 		reload: vi.fn(async () => {}),
 	};
@@ -224,7 +232,9 @@ describe("runPrintMode", () => {
 	});
 
 	it("prints trailing terminating structured_output tool-result content in text mode", async () => {
-		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "stale" }));
+		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "stale" }), {
+			structuredOutputTools: ["structured_output"],
+		});
 		const { session } = runtimeHost;
 		const stdoutChunks = captureStdout();
 		const finalJson = "{\n  \"ok\": true\n}";
@@ -258,8 +268,47 @@ describe("runPrintMode", () => {
 		expect(stdoutChunks.join("")).not.toContain("stale");
 	});
 
+	it("prints trailing terminating custom-named structured output tool-result content in text mode", async () => {
+		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "stale" }), {
+			structuredOutputTools: ["final_decision"],
+		});
+		const { session } = runtimeHost;
+		const stdoutChunks = captureStdout();
+		const finalJson = "{\n  \"approved\": true\n}";
+
+		session.prompt.mockImplementation(async () => {
+			session.emitEvent({
+				type: "tool_execution_end",
+				toolCallId: "custom-structured-call-1",
+				toolName: "final_decision",
+				result: {
+					content: [{ type: "text", text: finalJson }],
+					details: { approved: true },
+					terminate: true,
+				},
+				isError: false,
+			});
+			session.state.messages.push(createToolResultMessage({
+				toolCallId: "custom-structured-call-1",
+				toolName: "final_decision",
+				text: finalJson,
+			}));
+		});
+
+		const exitCode = await runPrintModeWithFakeHost(runtimeHost, {
+			mode: "text",
+			initialMessage: "Return JSON with final_decision",
+		});
+
+		expect(exitCode).toBe(0);
+		expect(stdoutChunks.join("")).toBe(`${finalJson}\n`);
+		expect(stdoutChunks.join("")).not.toContain("stale");
+	});
+
 	it("does not print trailing structured_output tool results without observed termination", async () => {
-		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "stale" }));
+		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "stale" }), {
+			structuredOutputTools: ["structured_output"],
+		});
 		const { session } = runtimeHost;
 		const stdoutChunks = captureStdout();
 

@@ -152,6 +152,25 @@ describe("WorkflowParametersSchema stage options", () => {
     assert.equal(Value.Check(WorkflowParametersSchema, { action: "send", delivery: "chat" }), false);
   });
 
+  test("rejects schema options without an explicit top-level object type", () => {
+    assert.equal(Value.Check(WorkflowParametersSchema, {
+      task: { name: "planner", prompt: "plan", schema: { type: "array", items: { type: "string" } } },
+    }), false);
+    assert.equal(Value.Check(WorkflowParametersSchema, {
+      tasks: [{ name: "reviewer", task: "review", schema: { type: "string" } }],
+    }), false);
+    assert.equal(Value.Check(WorkflowParametersSchema, {
+      chain: [
+        { name: "first", task: "one", schema: { properties: { ok: { type: "boolean" } } } },
+      ],
+    }), false);
+    assert.equal(Value.Check(WorkflowParametersSchema, {
+      chain: [
+        { parallel: [{ name: "second", task: "two", schema: { type: "object", properties: { ok: { type: "boolean" } } } }] },
+      ],
+    }), true);
+  });
+
   test("rejects non-array and non-string fallbackModels", () => {
     assert.equal(Value.Check(WorkflowParametersSchema, {
       task: { name: "planner", prompt: "plan", fallbackModels: "openai/fallback" },

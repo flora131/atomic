@@ -541,6 +541,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	parameters: TParams;
 	/** Optional per-tool character cap for model-visible result persistence. Use Infinity to opt out for self-bounded tools. */
 	maxResultSizeChars?: number;
+	/** Marks a terminating tool created by createStructuredOutputTool() so print mode can emit custom-named final JSON without treating every terminating tool as printable. */
+	structuredOutput?: true;
 	/** Controls whether ToolExecutionComponent renders the standard colored shell or the tool renders its own framing. */
 	renderShell?: "default" | "self";
 

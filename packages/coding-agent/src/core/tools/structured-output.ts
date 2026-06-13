@@ -139,6 +139,7 @@ function createStructuredOutputCaptureMetadata(toolName: string, toolCallId: str
 async function writePrivateJsonFile(filePath: string, serializedJson: string): Promise<void> {
 	await fs.mkdir(path.dirname(filePath), { recursive: true });
 	await fs.writeFile(filePath, serializedJson, { mode: 0o600 });
+	// Re-apply the private mode after writing so pre-existing looser files are tightened too.
 	await fs.chmod(filePath, 0o600);
 }
 
@@ -181,6 +182,7 @@ export function createStructuredOutputTool<TSchemaDef extends TSchema = typeof g
 		],
 		parameters: schema,
 		maxResultSizeChars: Infinity,
+		structuredOutput: true,
 		executionMode: "sequential",
 		async execute(toolCallId, params): Promise<AgentToolResult<Static<TSchemaDef>>> {
 			assertValidParams(schema, params);

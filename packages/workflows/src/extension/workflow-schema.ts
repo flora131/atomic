@@ -37,7 +37,10 @@ const McpOptionsSchema = Type.Object({
   deny: Type.Optional(Type.Array(Type.String())),
 });
 
-const JsonSchemaObject = Type.Record(Type.String(), Type.Unknown(), {
+const JsonSchemaObject = Type.Object({
+  type: Type.Literal("object"),
+}, {
+  additionalProperties: true,
   description: "Top-level object JSON Schema used as structured_output tool arguments for this workflow item.",
 });
 

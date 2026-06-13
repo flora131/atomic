@@ -10,9 +10,9 @@ import type { AssistantMessage, ImageContent, ToolResultMessage } from "@earendi
 import type { AgentSessionEvent } from "../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import type { ExtensionError } from "../core/extensions/index.ts";
+import type { ToolDefinition } from "../core/extensions/types.ts";
 import type { CustomMessage } from "../core/messages.ts";
 import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
-import { STRUCTURED_OUTPUT_TOOL_NAME } from "../core/tools/structured-output.ts";
 import { killTrackedDetachedChildren } from "../utils/shell.ts";
 
 /**
@@ -55,9 +55,18 @@ type MaybeTerminatingToolResult = {
 
 type ToolExecutionEndSessionEvent = Extract<AgentSessionEvent, { type: "tool_execution_end" }>;
 
-function isTerminatingStructuredOutputEvent(event: AgentSessionEvent): event is ToolExecutionEndSessionEvent {
+type GetToolDefinition = (name: string) => ToolDefinition | undefined;
+
+function isStructuredOutputTool(getToolDefinition: GetToolDefinition, name: string): boolean {
+	return getToolDefinition(name)?.structuredOutput === true;
+}
+
+function isTerminatingStructuredOutputEvent(
+	event: AgentSessionEvent,
+	getToolDefinition: GetToolDefinition,
+): event is ToolExecutionEndSessionEvent {
 	if (event.type !== "tool_execution_end") return false;
-	if (event.toolName !== STRUCTURED_OUTPUT_TOOL_NAME) return false;
+	if (!isStructuredOutputTool(getToolDefinition, event.toolName)) return false;
 	if (event.isError) return false;
 	const result = event.result as MaybeTerminatingToolResult | undefined;
 	return result?.terminate === true;
@@ -79,7 +88,6 @@ function terminatingStructuredOutputText(
 	message: ToolResultMessage,
 	terminatingStructuredOutputCallIds: ReadonlySet<string>,
 ): string | undefined {
-	if (message.toolName !== STRUCTURED_OUTPUT_TOOL_NAME) return undefined;
 	if (!terminatingStructuredOutputCallIds.has(message.toolCallId)) return undefined;
 	return textFromToolResult(message);
 }
@@ -182,7 +190,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 
 		unsubscribe?.();
 		unsubscribe = session.subscribe((event) => {
-			if (isTerminatingStructuredOutputEvent(event)) {
+			if (isTerminatingStructuredOutputEvent(event, (name) => session.getToolDefinition(name))) {
 				terminatingStructuredOutputCallIds.add(event.toolCallId);
 			}
 			if (mode === "json") {

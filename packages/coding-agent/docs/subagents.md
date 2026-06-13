@@ -144,7 +144,7 @@ You are a read-only inspector. Inspect the current diff, cite evidence with file
 
 Use `completionGuard: false` sparingly. It opts a user-authored agent out of automatic completion-guard reminders and is intended for read-only agents whose prompt already prevents premature completion. Do not use it to bypass required implementation or validation work.
 
-If an agent or chain step uses an explicit empty `tools: []` allowlist together with `outputSchema`, Atomic starts the child with only `structured_output` enabled for the required final answer. It does not omit `--tools` and accidentally restore default tools. Path-only tool entries remain extension paths and do not create a builtin allowlist by themselves.
+If an agent or chain step uses an explicit empty `tools: []` allowlist together with `outputSchema`, Atomic starts the child with only `structured_output` enabled for the required final answer. It does not omit `--tools` and accidentally restore default tools. Path-only tool entries remain extension paths and do not create a builtin allowlist by themselves. The child prompt-runtime extension is loaded before user/tool extensions so its schema-backed `structured_output` tool is registered before explicit allowlists are applied.
 
 ## Structured output schemas
 

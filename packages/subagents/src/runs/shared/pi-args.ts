@@ -154,6 +154,8 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 		}
 	}
 
+	// Keep the prompt runtime first: schema-backed children get structured_output
+	// from this extension before the child session refreshes explicit --tools allowlists.
 	const runtimeExtensions = fanoutAuthorized
 		? [PROMPT_RUNTIME_EXTENSION_PATH, FANOUT_CHILD_EXTENSION_PATH]
 		: [PROMPT_RUNTIME_EXTENSION_PATH];

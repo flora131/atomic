@@ -167,6 +167,30 @@ describe("subagent child CLI args", () => {
     assert.equal(result.args.includes(toolPath), true);
   });
 
+  test("loads the prompt runtime before user extensions when structured_output is allowlisted", () => {
+    const toolPath = "/tmp/custom-tool.ts";
+    const userExtensionPath = "/tmp/user-extension.ts";
+    const result = buildPiArgs({
+      baseArgs: [],
+      task: "hello",
+      sessionEnabled: false,
+      inheritProjectContext: true,
+      inheritSkills: true,
+      tools: ["read", toolPath],
+      extensions: [userExtensionPath],
+      structuredOutput: structuredOutputRuntime(),
+    });
+
+    const toolsIndex = result.args.indexOf("--tools");
+    assert.notEqual(toolsIndex, -1);
+    assert.equal(result.args[toolsIndex + 1], "read,structured_output");
+
+    const extensionPaths = result.args
+      .map((arg, index) => (arg === "--extension" ? result.args[index + 1] : undefined))
+      .filter((arg): arg is string => typeof arg === "string");
+    assert.deepEqual(extensionPaths, [PROMPT_RUNTIME_EXTENSION_PATH, toolPath, userExtensionPath]);
+  });
+
   test("maps scoped fast-mode settings onto child chat env", () => {
     const chatScoped = buildPiArgs({
       baseArgs: [],

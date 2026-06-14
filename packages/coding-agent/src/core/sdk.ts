@@ -32,7 +32,7 @@ import type {
 } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
-import { findInitialModel } from "./model-resolver.ts";
+import { findInitialModel, resolveSavedModelReference } from "./model-resolver.ts";
 import type { ResourceLoader } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
@@ -267,9 +267,10 @@ export async function createAgentSession(
 
   // If session has data, try to restore model from it
   if (!model && hasExistingSession && existingSession.model) {
-    const restoredModel = modelRegistry.find(
+    const restoredModel = await resolveSavedModelReference(
       existingSession.model.provider,
       existingSession.model.modelId,
+      modelRegistry,
     );
     if (restoredModel && modelRegistry.hasConfiguredAuth(restoredModel)) {
       model = restoredModel;
